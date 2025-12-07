@@ -709,3 +709,156 @@ pub async fn delete_service(
         Err(e) => Ok(Json(ApiResponse::err(e.to_string()))),
     }
 }
+
+// ============================================================================
+// OpenAPI Import
+// ============================================================================
+
+#[derive(Debug, Deserialize)]
+pub struct ImportOpenApiRequest {
+    /// OpenAPI spec content (YAML or JSON)
+    pub spec: String,
+    /// Domain to associate endpoints with
+    pub domain: String,
+    /// Optional collection ID to group endpoints
+    pub collection_id: Option<String>,
+    /// Whether to create a new collection from the spec
+    pub create_collection: Option<bool>,
+    /// Domain ID for new collection (required if create_collection is true)
+    pub domain_id: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ImportOpenApiResponse {
+    pub collection: Option<Collection>,
+    pub endpoints_created: usize,
+    pub endpoints: Vec<Endpoint>,
+}
+
+/// Import endpoints from an OpenAPI spec
+pub async fn import_openapi(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<ImportOpenApiRequest>,
+) -> Result<Json<ApiResponse<ImportOpenApiResponse>>, StatusCode> {
+    // Parse the OpenAPI spec
+    let import_result = match crate::openapi::parse_openapi(&req.spec) {
+        Ok(result) => result,
+        Err(e) => return Ok(Json(ApiResponse::err(format!("Failed to parse OpenAPI spec: {}", e)))),
+    };
+
+    // Optionally create a collection
+    let mut created_collection: Option<Collection> = None;
+    let collection_id = if req.create_collection.unwrap_or(false) {
+        let domain_id = match req.domain_id {
+            Some(ref id) => id.clone(),
+            None => return Ok(Json(ApiResponse::err("domain_id required when create_collection is true"))),
+        };
+
+        let collection = Collection {
+            id: Uuid::new_v4().to_string(),
+            domain_id,
+            name: import_result.title.clone(),
+            description: import_result.description.clone(),
+            base_path: import_result.base_path.clone(),
+            enabled: true,
+            created_at: None,
+            updated_at: None,
+        };
+
+        if let Err(e) = state.db.create_collection(&collection) {
+            return Ok(Json(ApiResponse::err(format!("Failed to create collection: {}", e))));
+        }
+
+        let id = collection.id.clone();
+        created_collection = Some(collection);
+        Some(id)
+    } else {
+        req.collection_id.clone()
+    };
+
+    // Create endpoints
+    let endpoints = crate::openapi::create_endpoints_from_import(
+        &import_result,
+        &req.domain,
+        collection_id.as_deref(),
+    );
+
+    let endpoints_created = endpoints.len();
+
+    // Save endpoints to database
+    for endpoint in &endpoints {
+        if let Err(e) = state.db.create_endpoint(endpoint) {
+            return Ok(Json(ApiResponse::err(format!("Failed to create endpoint '{}': {}", endpoint.name, e))));
+        }
+    }
+
+    Ok(Json(ApiResponse::ok(ImportOpenApiResponse {
+        collection: created_collection,
+        endpoints_created,
+        endpoints,
+    })))
+}
+
+// ============================================================================
+// Service Connection Testing
+// ============================================================================
+
+#[derive(Debug, Serialize)]
+pub struct ServiceTestResponse {
+    pub id: String,
+    pub name: String,
+    pub service_type: ServiceType,
+    pub connected: bool,
+    pub error: Option<String>,
+    pub info: serde_json::Value,
+}
+
+/// Test a service connection
+pub async fn test_service(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> Result<Json<ApiResponse<ServiceTestResponse>>, StatusCode> {
+    // Get the service from database
+    let service = match state.db.get_service(&id) {
+        Ok(Some(s)) => s,
+        Ok(None) => return Ok(Json(ApiResponse::err("Service not found"))),
+        Err(e) => return Ok(Json(ApiResponse::err(e.to_string()))),
+    };
+
+    // Try to create a connector and test it
+    let result = crate::services::create_connector(service.service_type.clone(), &service.config);
+
+    match result {
+        Ok(connector) => {
+            let test_result = connector.test_connection();
+            let info = connector.connection_info();
+
+            match test_result {
+                Ok(_) => Ok(Json(ApiResponse::ok(ServiceTestResponse {
+                    id: service.id,
+                    name: service.name,
+                    service_type: service.service_type,
+                    connected: true,
+                    error: None,
+                    info,
+                }))),
+                Err(e) => Ok(Json(ApiResponse::ok(ServiceTestResponse {
+                    id: service.id,
+                    name: service.name,
+                    service_type: service.service_type,
+                    connected: false,
+                    error: Some(e.to_string()),
+                    info,
+                }))),
+            }
+        }
+        Err(e) => Ok(Json(ApiResponse::ok(ServiceTestResponse {
+            id: service.id,
+            name: service.name,
+            service_type: service.service_type,
+            connected: false,
+            error: Some(format!("Failed to create connector: {}", e)),
+            info: serde_json::json!({}),
+        }))),
+    }
+}

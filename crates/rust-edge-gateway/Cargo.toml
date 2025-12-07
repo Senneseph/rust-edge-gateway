@@ -25,3 +25,5 @@ tracing-subscriber = { workspace = true }
 uuid = { workspace = true }
 chrono = { workspace = true }
 url = { workspace = true }
+serde_yaml = "0.9.34"
+openapiv3 = "2.2.0"

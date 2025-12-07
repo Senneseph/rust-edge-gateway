@@ -12,6 +12,8 @@ mod router;
 mod worker;
 mod api;
 mod compiler;
+mod openapi;
+mod services;
 
 use anyhow::Result;
 use axum::{
@@ -89,6 +91,7 @@ async fn main() -> Result<()> {
         .route("/services/{id}", get(api::get_service))
         .route("/services/{id}", put(api::update_service))
         .route("/services/{id}", delete(api::delete_service))
+        .route("/services/{id}/test", post(api::test_service))
         // Endpoints
         .route("/endpoints", get(api::list_endpoints))
         .route("/endpoints", post(api::create_endpoint))
@@ -100,6 +103,8 @@ async fn main() -> Result<()> {
         .route("/endpoints/{id}/compile", post(api::compile_endpoint))
         .route("/endpoints/{id}/start", post(api::start_endpoint))
         .route("/endpoints/{id}/stop", post(api::stop_endpoint))
+        // Import
+        .route("/import/openapi", post(api::import_openapi))
         // System
         .route("/health", get(api::health_check))
         .route("/stats", get(api::get_stats));
