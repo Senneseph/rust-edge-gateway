@@ -1,0 +1,25 @@
+[book]
+title = "Rust Edge Gateway"
+authors = ["Rust Edge Gateway Team"]
+description = "Documentation for writing handlers and using the Rust Edge Gateway SDK"
+language = "en"
+src = "src"
+
+[build]
+build-dir = "book"
+
+[output.html]
+default-theme = "rust"
+preferred-dark-theme = "coal"
+git-repository-url = "https://github.com/Senneseph/Rust-Edge-Gateway"
+edit-url-template = "https://github.com/Senneseph/Rust-Edge-Gateway/edit/master/docs/{path}"
+site-url = "/docs/"
+cname = "docs.rust-edge-gateway.iffuso.com"
+
+[output.html.fold]
+enable = true
+level = 1
+
+[output.html.playground]
+editable = true
+
