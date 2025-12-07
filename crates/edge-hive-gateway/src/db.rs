@@ -2,10 +2,37 @@
 
 use anyhow::{Context, Result};
 use rusqlite::{Connection, params, OptionalExtension};
+use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Mutex;
 
 use crate::api::Endpoint;
+
+/// Match a path pattern (e.g., "/pet/{petId}") against an actual path (e.g., "/pet/42")
+/// Returns extracted path parameters if matched
+fn match_path_pattern(pattern: &str, path: &str) -> Option<HashMap<String, String>> {
+    let pattern_parts: Vec<&str> = pattern.split('/').collect();
+    let path_parts: Vec<&str> = path.split('/').collect();
+
+    if pattern_parts.len() != path_parts.len() {
+        return None;
+    }
+
+    let mut params = HashMap::new();
+
+    for (pattern_part, path_part) in pattern_parts.iter().zip(path_parts.iter()) {
+        if pattern_part.starts_with('{') && pattern_part.ends_with('}') {
+            // This is a path parameter
+            let param_name = &pattern_part[1..pattern_part.len()-1];
+            params.insert(param_name.to_string(), path_part.to_string());
+        } else if pattern_part != path_part {
+            // Static parts must match exactly
+            return None;
+        }
+    }
+
+    Some(params)
+}
 
 /// SQLite database wrapper
 pub struct Database {
@@ -196,14 +223,16 @@ impl Database {
     }
 
     /// Find endpoint by domain, path, and method
-    pub fn find_endpoint(&self, domain: &str, path: &str, method: &str) -> Result<Option<Endpoint>> {
+    /// Find endpoint by domain, path pattern, and method
+    /// Returns (endpoint, extracted_path_params)
+    pub fn find_endpoint(&self, domain: &str, path: &str, method: &str) -> Result<Option<(Endpoint, std::collections::HashMap<String, String>)>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
             "SELECT id, name, domain, path, method, code, compiled, enabled, created_at, updated_at
-             FROM endpoints WHERE domain = ? AND path = ? AND method = ? AND enabled = 1"
+             FROM endpoints WHERE domain = ? AND method = ? AND enabled = 1"
         )?;
 
-        let endpoint = stmt.query_row(params![domain, path, method], |row| {
+        let endpoints: Vec<Endpoint> = stmt.query_map(params![domain, method], |row| {
             Ok(Endpoint {
                 id: row.get(0)?,
                 name: row.get(1)?,
@@ -216,9 +245,16 @@ impl Database {
                 created_at: row.get(8)?,
                 updated_at: row.get(9)?,
             })
-        }).optional()?;
+        })?.filter_map(|r| r.ok()).collect();
 
-        Ok(endpoint)
+        // Try to match each endpoint's path pattern against the request path
+        for endpoint in endpoints {
+            if let Some(params) = match_path_pattern(&endpoint.path, path) {
+                return Ok(Some((endpoint, params)));
+            }
+        }
+
+        Ok(None)
     }
 
     /// Get endpoint count

@@ -45,9 +45,9 @@ async fn handle_gateway_request(
         "Incoming request"
     );
     
-    // Find the endpoint for this request
-    let endpoint = match state.db.find_endpoint(domain, &path, &method) {
-        Ok(Some(e)) => e,
+    // Find the endpoint for this request (with path parameter extraction)
+    let (endpoint, path_params) = match state.db.find_endpoint(domain, &path, &method) {
+        Ok(Some((e, params))) => (e, params),
         Ok(None) => {
             tracing::debug!("No endpoint found for {} {} {}", domain, method, path);
             return (StatusCode::NOT_FOUND, "Not Found").into_response();
@@ -99,7 +99,7 @@ async fn handle_gateway_request(
         query,
         headers,
         body,
-        params: std::collections::HashMap::new(), // TODO: extract path params
+        params: path_params,
         client_ip: None, // TODO: extract from X-Forwarded-For
         request_id: request_id.clone(),
     };
