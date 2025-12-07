@@ -70,6 +70,26 @@ async fn main() -> Result<()> {
 
     // Build admin API router
     let admin_api = Router::new()
+        // Domains
+        .route("/domains", get(api::list_domains))
+        .route("/domains", post(api::create_domain))
+        .route("/domains/{id}", get(api::get_domain))
+        .route("/domains/{id}", put(api::update_domain))
+        .route("/domains/{id}", delete(api::delete_domain))
+        .route("/domains/{id}/collections", get(api::list_domain_collections))
+        // Collections
+        .route("/collections", get(api::list_collections))
+        .route("/collections", post(api::create_collection))
+        .route("/collections/{id}", get(api::get_collection))
+        .route("/collections/{id}", put(api::update_collection))
+        .route("/collections/{id}", delete(api::delete_collection))
+        // Services
+        .route("/services", get(api::list_services))
+        .route("/services", post(api::create_service))
+        .route("/services/{id}", get(api::get_service))
+        .route("/services/{id}", put(api::update_service))
+        .route("/services/{id}", delete(api::delete_service))
+        // Endpoints
         .route("/endpoints", get(api::list_endpoints))
         .route("/endpoints", post(api::create_endpoint))
         .route("/endpoints/{id}", get(api::get_endpoint))
@@ -80,6 +100,7 @@ async fn main() -> Result<()> {
         .route("/endpoints/{id}/compile", post(api::compile_endpoint))
         .route("/endpoints/{id}/start", post(api::start_endpoint))
         .route("/endpoints/{id}/stop", post(api::stop_endpoint))
+        // System
         .route("/health", get(api::health_check))
         .route("/stats", get(api::get_stats));
 
