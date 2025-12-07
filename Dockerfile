@@ -1,4 +1,5 @@
-# Edge Hive Platform - Development & Runtime Container
+# Edge Gateway - Production Container with Rust Toolchain
+# Includes Rust for handler compilation at runtime
 FROM rust:1.83-slim-bookworm
 
 # Install build dependencies
@@ -15,14 +16,14 @@ WORKDIR /app
 # Copy workspace files
 COPY . .
 
-# Build the project (will be done on first run if not cached)
-# RUN cargo build --release
+# Build the release binary
+RUN cargo build --release --bin edge-hive
 
 # Expose ports
 # 8080 - Main gateway
 # 8081 - Admin interface
 EXPOSE 8080 8081
 
-# Default command
-CMD ["cargo", "run", "--bin", "edge-hive"]
+# Run the pre-built binary
+CMD ["./target/release/edge-hive"]
 
