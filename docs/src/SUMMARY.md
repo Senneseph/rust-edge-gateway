@@ -14,6 +14,7 @@
 - [Response](./sdk/response.md)
 - [Error Handling](./sdk/errors.md)
 - [Services](./sdk/services.md)
+  - [Storage Abstraction](./sdk/services/storage.md)
   - [Database](./sdk/services/database.md)
   - [Redis](./sdk/services/redis.md)
   - [FTP/SFTP](./sdk/services/ftp.md)
@@ -26,6 +27,7 @@
 - [Path Parameters](./examples/path-params.md)
 - [Query Parameters](./examples/query-params.md)
 - [Error Handling](./examples/error-handling.md)
+- [Pet Store Demo](./examples/petstore.md)
 
 # API Reference
 
