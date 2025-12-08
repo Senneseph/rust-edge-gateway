@@ -183,6 +183,21 @@
                     <main>
                         <h1 id="response"><a class="header" href="#response">Response</a></h1>
 <p>The <code>Response</code> struct represents an outgoing HTTP response.</p>
+<h2 id="quick-reference"><a class="header" href="#quick-reference">Quick Reference</a></h2>
+<div class="table-wrapper"><table><thead><tr><th>Method</th><th>Status</th><th>Use Case</th></tr></thead><tbody>
+<tr><td><code>ok(body)</code></td><td>200</td><td>Successful GET/PUT</td></tr>
+<tr><td><code>created(body)</code></td><td>201</td><td>Successful POST</td></tr>
+<tr><td><code>accepted(body)</code></td><td>202</td><td>Async operation started</td></tr>
+<tr><td><code>no_content()</code></td><td>204</td><td>Successful DELETE</td></tr>
+<tr><td><code>bad_request(msg)</code></td><td>400</td><td>Invalid input</td></tr>
+<tr><td><code>unauthorized(msg)</code></td><td>401</td><td>Missing/invalid auth</td></tr>
+<tr><td><code>forbidden(msg)</code></td><td>403</td><td>Not authorized</td></tr>
+<tr><td><code>not_found()</code></td><td>404</td><td>Resource not found</td></tr>
+<tr><td><code>conflict(msg)</code></td><td>409</td><td>Resource conflict</td></tr>
+<tr><td><code>internal_error(msg)</code></td><td>500</td><td>Server error</td></tr>
+<tr><td><code>service_unavailable(msg)</code></td><td>503</td><td>Backend down</td></tr>
+</tbody></table>
+</div>
 <h2 id="definition"><a class="header" href="#definition">Definition</a></h2>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
@@ -192,26 +207,19 @@
     pub body: Option&lt;String&gt;,
 }
 <span class="boring">}</span></code></pre></pre>
-<h2 id="fields"><a class="header" href="#fields">Fields</a></h2>
-<div class="table-wrapper"><table><thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead><tbody>
-<tr><td><code>status</code></td><td><code>u16</code></td><td>HTTP status code (200, 404, 500, etc.)</td></tr>
-<tr><td><code>headers</code></td><td><code>HashMap&lt;String, String&gt;</code></td><td>Response headers</td></tr>
-<tr><td><code>body</code></td><td><code>Option&lt;String&gt;</code></td><td>Response body content</td></tr>
-</tbody></table>
-</div>
 <h2 id="constructor-methods"><a class="header" href="#constructor-methods">Constructor Methods</a></h2>
 <h3 id="newstatus-u16"><a class="header" href="#newstatus-u16"><code>new(status: u16)</code></a></h3>
 <p>Create a response with just a status code (no body).</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>Response::new(204)  // 204 No Content
+Response::new(301).with_header("Location", "/new-path")
 <span class="boring">}</span></code></pre></pre>
 <h3 id="okt-serializebody-t"><a class="header" href="#okt-serializebody-t"><code>ok&lt;T: Serialize&gt;(body: T)</code></a></h3>
 <p>Create a 200 OK response with JSON body.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>Response::ok(json!({"message": "Success"}))
-Response::ok(json!({"users": users}))
 Response::ok(my_struct)  // If my_struct implements Serialize
 <span class="boring">}</span></code></pre></pre>
 <h3 id="jsont-serializestatus-u16-body-t"><a class="header" href="#jsont-serializestatus-u16-body-t"><code>json&lt;T: Serialize&gt;(status: u16, body: T)</code></a></h3>
@@ -220,7 +228,6 @@ Response::ok(my_struct)  // If my_struct implements Serialize
 </span><span class="boring">fn main() {
 </span>Response::json(201, json!({"id": "new-id"}))
 Response::json(400, json!({"error": "Invalid input"}))
-Response::json(403, json!({"error": "Forbidden"}))
 <span class="boring">}</span></code></pre></pre>
 <h3 id="textstatus-u16-body-impl-intostring"><a class="header" href="#textstatus-u16-body-impl-intostring"><code>text(status: u16, body: impl Into&lt;String&gt;)</code></a></h3>
 <p>Create a plain text response.</p>
@@ -229,41 +236,95 @@ Response::json(403, json!({"error": "Forbidden"}))
 </span>Response::text(200, "Hello, World!")
 Response::text(500, "Internal Server Error")
 <span class="boring">}</span></code></pre></pre>
-<h3 id="createdt-serializebody-t"><a class="header" href="#createdt-serializebody-t"><code>created&lt;T: Serialize&gt;(body: T)</code></a></h3>
-<p>Create a 201 Created response with JSON body.</p>
+<h3 id="htmlstatus-u16-body-impl-intostring"><a class="header" href="#htmlstatus-u16-body-impl-intostring"><code>html(status: u16, body: impl Into&lt;String&gt;)</code></a></h3>
+<p>Create an HTML response.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
-</span>Response::created(json!({
-    "id": "12345",
-    "name": "New Resource",
-}))
+</span>Response::html(200, "&lt;html&gt;&lt;body&gt;&lt;h1&gt;Hello!&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;")
+<span class="boring">}</span></code></pre></pre>
+<h3 id="binarystatus-u16-data-impl-asrefu8-content_type-impl-intostring"><a class="header" href="#binarystatus-u16-data-impl-asrefu8-content_type-impl-intostring"><code>binary(status: u16, data: impl AsRef&lt;[u8]&gt;, content_type: impl Into&lt;String&gt;)</code></a></h3>
+<p>Create a binary response for files, images, etc.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>// Serve an image
+Response::binary(200, image_bytes, "image/png")
+
+// Serve a PDF with download prompt
+Response::binary(200, pdf_bytes, "application/pdf")
+    .with_header("Content-Disposition", "attachment; filename=\"report.pdf\"")
+
+// Inline image
+Response::binary(200, jpeg_bytes, "image/jpeg")
+    .with_header("Content-Disposition", "inline; filename=\"photo.jpg\"")
+<span class="boring">}</span></code></pre></pre>
+<h3 id="createdt-serializebody-t"><a class="header" href="#createdt-serializebody-t"><code>created&lt;T: Serialize&gt;(body: T)</code></a></h3>
+<p>Create a 201 Created response.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>Response::created(json!({"id": "12345", "name": "New Resource"}))
+<span class="boring">}</span></code></pre></pre>
+<h3 id="acceptedt-serializebody-t"><a class="header" href="#acceptedt-serializebody-t"><code>accepted&lt;T: Serialize&gt;(body: T)</code></a></h3>
+<p>Create a 202 Accepted response (for async operations).</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>Response::accepted(json!({"job_id": "abc123", "status": "processing"}))
 <span class="boring">}</span></code></pre></pre>
 <h3 id="no_content"><a class="header" href="#no_content"><code>no_content()</code></a></h3>
 <p>Create a 204 No Content response.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
-</span>Response::no_content()  // Used for DELETE or updates with no return data
+</span>Response::no_content()  // Used for DELETE
 <span class="boring">}</span></code></pre></pre>
-<h2 id="error-response-helpers"><a class="header" href="#error-response-helpers">Error Response Helpers</a></h2>
-<h3 id="not_found"><a class="header" href="#not_found"><code>not_found()</code></a></h3>
-<p>Create a 404 Not Found response.</p>
+<h3 id="redirectstatus-u16-location-impl-intostring"><a class="header" href="#redirectstatus-u16-location-impl-intostring"><code>redirect(status: u16, location: impl Into&lt;String&gt;)</code></a></h3>
+<p>Create a redirect response.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
-</span>Response::not_found()
-// Returns: {"error": "Not Found"}
+</span>Response::redirect(302, "https://example.com/new-location")
+Response::redirect(301, "/permanent-new-path")
 <span class="boring">}</span></code></pre></pre>
+<h2 id="error-response-helpers"><a class="header" href="#error-response-helpers">Error Response Helpers</a></h2>
 <h3 id="bad_requestmessage-impl-intostring"><a class="header" href="#bad_requestmessage-impl-intostring"><code>bad_request(message: impl Into&lt;String&gt;)</code></a></h3>
-<p>Create a 400 Bad Request response.</p>
+<p>400 Bad Request.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>Response::bad_request("Missing required field: email")
-Response::bad_request(format!("Invalid value for field: {}", field))
+<span class="boring">}</span></code></pre></pre>
+<h3 id="unauthorizedmessage-impl-intostring"><a class="header" href="#unauthorizedmessage-impl-intostring"><code>unauthorized(message: impl Into&lt;String&gt;)</code></a></h3>
+<p>401 Unauthorized.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>Response::unauthorized("Invalid or expired token")
+<span class="boring">}</span></code></pre></pre>
+<h3 id="forbiddenmessage-impl-intostring"><a class="header" href="#forbiddenmessage-impl-intostring"><code>forbidden(message: impl Into&lt;String&gt;)</code></a></h3>
+<p>403 Forbidden.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>Response::forbidden("You don't have permission to access this resource")
+<span class="boring">}</span></code></pre></pre>
+<h3 id="not_found--not_found_msgmessage"><a class="header" href="#not_found--not_found_msgmessage"><code>not_found()</code> / <code>not_found_msg(message)</code></a></h3>
+<p>404 Not Found.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>Response::not_found()
+Response::not_found_msg("User with ID 123 not found")
+<span class="boring">}</span></code></pre></pre>
+<h3 id="conflictmessage-impl-intostring"><a class="header" href="#conflictmessage-impl-intostring"><code>conflict(message: impl Into&lt;String&gt;)</code></a></h3>
+<p>409 Conflict.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>Response::conflict("A user with this email already exists")
 <span class="boring">}</span></code></pre></pre>
 <h3 id="internal_errormessage-impl-intostring"><a class="header" href="#internal_errormessage-impl-intostring"><code>internal_error(message: impl Into&lt;String&gt;)</code></a></h3>
-<p>Create a 500 Internal Server Error response.</p>
+<p>500 Internal Server Error.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>Response::internal_error("Database connection failed")
+<span class="boring">}</span></code></pre></pre>
+<h3 id="service_unavailablemessage-impl-intostring"><a class="header" href="#service_unavailablemessage-impl-intostring"><code>service_unavailable(message: impl Into&lt;String&gt;)</code></a></h3>
+<p>503 Service Unavailable.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>Response::service_unavailable("Database is currently unavailable")
 <span class="boring">}</span></code></pre></pre>
 <h2 id="builder-methods"><a class="header" href="#builder-methods">Builder Methods</a></h2>
 <h3 id="with_headerkey-value"><a class="header" href="#with_headerkey-value"><code>with_header(key, value)</code></a></h3>
@@ -282,74 +343,107 @@ Response::bad_request(format!("Invalid value for field: {}", field))
     .with_header("Content-Type", "text/html")
     .with_body("&lt;html&gt;&lt;body&gt;Hello!&lt;/body&gt;&lt;/html&gt;")
 <span class="boring">}</span></code></pre></pre>
-<h2 id="common-patterns"><a class="header" href="#common-patterns">Common Patterns</a></h2>
-<h3 id="restful-responses"><a class="header" href="#restful-responses">RESTful Responses</a></h3>
+<h3 id="with_corsorigin-impl-intostring"><a class="header" href="#with_corsorigin-impl-intostring"><code>with_cors(origin: impl Into&lt;String&gt;)</code></a></h3>
+<p>Add CORS headers for cross-origin requests.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
-</span>// GET - Return resource
-Response::ok(json!({"id": 1, "name": "Item"}))
+</span>Response::ok(data).with_cors("*")
+Response::ok(data).with_cors("https://myapp.com")
+<span class="boring">}</span></code></pre></pre>
+<h3 id="with_cachemax_age_seconds-u32"><a class="header" href="#with_cachemax_age_seconds-u32"><code>with_cache(max_age_seconds: u32)</code></a></h3>
+<p>Add caching headers.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>Response::ok(data).with_cache(3600)  // Cache for 1 hour
+Response::ok(data).with_cache(0)     // No cache
+<span class="boring">}</span></code></pre></pre>
+<h2 id="common-patterns"><a class="header" href="#common-patterns">Common Patterns</a></h2>
+<h3 id="restful-api"><a class="header" href="#restful-api">RESTful API</a></h3>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>// GET /items - List items
+Response::ok(json!({"items": items}))
 
-// POST - Return created resource
-Response::created(json!({"id": 1, "name": "New Item"}))
+// GET /items/{id} - Get single item
+Response::ok(item)  // or Response::not_found()
 
-// PUT - Return updated resource
-Response::ok(json!({"id": 1, "name": "Updated Item"}))
+// POST /items - Create item
+Response::created(json!({"id": new_id, ...item}))
 
-// DELETE - No content
+// PUT /items/{id} - Update item
+Response::ok(updated_item)
+
+// DELETE /items/{id} - Delete item
 Response::no_content()
 <span class="boring">}</span></code></pre></pre>
-<h3 id="error-handling-pattern"><a class="header" href="#error-handling-pattern">Error Handling Pattern</a></h3>
+<h3 id="error-handling-with-result"><a class="header" href="#error-handling-with-result">Error Handling with Result</a></h3>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
-</span>fn handle(req: Request) -&gt; Response {
-    match process(&amp;req) {
-        Ok(data) =&gt; Response::ok(data),
-        Err(e) =&gt; match e {
-            AppError::NotFound =&gt; Response::not_found(),
-            AppError::Validation(msg) =&gt; Response::bad_request(msg),
-            AppError::Unauthorized =&gt; Response::json(401, json!({"error": "Unauthorized"})),
-            AppError::Internal(msg) =&gt; Response::internal_error(msg),
-        }
-    }
+</span>fn handle(req: Request) -&gt; Result&lt;Response, HandlerError&gt; {
+    let user = find_user(&amp;req)?;  // Returns 404 if not found
+    Ok(Response::ok(user))
+}
+
+handler_loop_result!(handle);  // Errors auto-convert to Response
+<span class="boring">}</span></code></pre></pre>
+<h3 id="file-uploads-response"><a class="header" href="#file-uploads-response">File Uploads Response</a></h3>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>fn handle_upload(req: Request) -&gt; Result&lt;Response, HandlerError&gt; {
+    let multipart = req.multipart()?;
+    let file = multipart.require_file("document")?;
+
+    // Process file...
+    let saved_id = save_to_storage(&amp;file.data)?;
+
+    Ok(Response::created(json!({
+        "id": saved_id,
+        "filename": file.filename,
+        "size": file.data.len(),
+        "content_type": file.content_type
+    })))
+}
+<span class="boring">}</span></code></pre></pre>
+<h3 id="serving-files"><a class="header" href="#serving-files">Serving Files</a></h3>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>fn serve_image(req: Request) -&gt; Result&lt;Response, HandlerError&gt; {
+    let id = req.require_path_param::&lt;String&gt;("id")?;
+    let image_data = load_image(&amp;id)?;
+
+    Ok(Response::binary(200, image_data, "image/png")
+        .with_cache(86400)  // Cache for 1 day
+        .with_header("Content-Disposition", format!("inline; filename=\"{}.png\"", id)))
 }
 <span class="boring">}</span></code></pre></pre>
 <h3 id="custom-content-types"><a class="header" href="#custom-content-types">Custom Content Types</a></h3>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
-</span>// HTML
-Response::new(200)
-    .with_header("Content-Type", "text/html; charset=utf-8")
-    .with_body("&lt;h1&gt;Hello&lt;/h1&gt;")
-
-// XML
+</span>// XML
 Response::new(200)
     .with_header("Content-Type", "application/xml")
     .with_body("&lt;root&gt;&lt;item&gt;Value&lt;/item&gt;&lt;/root&gt;")
 
-// CSV
+// CSV with download
 Response::new(200)
     .with_header("Content-Type", "text/csv")
     .with_header("Content-Disposition", "attachment; filename=\"data.csv\"")
     .with_body("id,name\n1,Alice\n2,Bob")
 <span class="boring">}</span></code></pre></pre>
-<h3 id="redirect"><a class="header" href="#redirect">Redirect</a></h3>
+<h3 id="cors-preflight"><a class="header" href="#cors-preflight">CORS Preflight</a></h3>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
-</span>// Temporary redirect (307)
-Response::new(307)
-    .with_header("Location", "https://example.com/new-path")
+</span>fn handle(req: Request) -&gt; Response {
+    if req.is_method("OPTIONS") {
+        return Response::no_content()
+            .with_cors("*")
+            .with_header("Access-Control-Max-Age", "86400");
+    }
 
-// Permanent redirect (308)
-Response::new(308)
-    .with_header("Location", "https://example.com/permanent-path")
-<span class="boring">}</span></code></pre></pre>
-<h3 id="cors-headers"><a class="header" href="#cors-headers">CORS Headers</a></h3>
-<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span>Response::ok(json!({"data": "value"}))
-    .with_header("Access-Control-Allow-Origin", "*")
-    .with_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-    .with_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
+    // Handle actual request...
+    Response::ok(data).with_cors("*")
+}
+
 <span class="boring">}</span></code></pre></pre>
 
                     </main>

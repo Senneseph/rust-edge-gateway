@@ -10,6 +10,7 @@
 
 # SDK Reference
 
+- [Handler Macros](./sdk/handlers.md)
 - [Request](./sdk/request.md)
 - [Response](./sdk/response.md)
 - [Error Handling](./sdk/errors.md)

@@ -3,7 +3,7 @@
     <head>
         <!-- Book generated using mdBook -->
         <meta charset="UTF-8">
-        <title>Error Handling - Rust Edge Gateway</title>
+        <title>Handler Macros - Rust Edge Gateway</title>
 
 
         <!-- Custom HTML head -->
@@ -147,7 +147,7 @@
                         <a href="https://github.com/Senneseph/Rust-Edge-Gateway" title="Git repository" aria-label="Git repository">
                             <i id="git-repository-button" class="fa fa-github"></i>
                         </a>
-                        <a href="https://github.com/Senneseph/Rust-Edge-Gateway/edit/master/docs/src/sdk/errors.md" title="Suggest an edit" aria-label="Suggest an edit" rel="edit">
+                        <a href="https://github.com/Senneseph/Rust-Edge-Gateway/edit/master/docs/src/sdk/handlers.md" title="Suggest an edit" aria-label="Suggest an edit" rel="edit">
                             <i id="git-edit-button" class="fa fa-edit"></i>
                         </a>
 
@@ -181,234 +181,167 @@
 
                 <div id="content" class="content">
                     <main>
-                        <h1 id="error-handling"><a class="header" href="#error-handling">Error Handling</a></h1>
-<p>The SDK provides a <code>HandlerError</code> enum for structured error handling with automatic HTTP status code mapping.</p>
+                        <h1 id="handler-macros"><a class="header" href="#handler-macros">Handler Macros</a></h1>
+<p>The SDK provides several macros for running handler loops with different patterns.</p>
 <h2 id="quick-reference"><a class="header" href="#quick-reference">Quick Reference</a></h2>
-<div class="table-wrapper"><table><thead><tr><th>Variant</th><th>Status</th><th>Use Case</th></tr></thead><tbody>
-<tr><td><code>BadRequest(msg)</code></td><td>400</td><td>Invalid input, malformed JSON</td></tr>
-<tr><td><code>ValidationError(msg)</code></td><td>400</td><td>Semantic validation failures</td></tr>
-<tr><td><code>Unauthorized(msg)</code></td><td>401</td><td>Missing or invalid auth</td></tr>
-<tr><td><code>Forbidden(msg)</code></td><td>403</td><td>Authenticated but not authorized</td></tr>
-<tr><td><code>NotFound</code> / <code>NotFoundMessage(msg)</code></td><td>404</td><td>Resource not found</td></tr>
-<tr><td><code>MethodNotAllowed(msg)</code></td><td>405</td><td>Wrong HTTP method</td></tr>
-<tr><td><code>Conflict(msg)</code></td><td>409</td><td>Resource conflict (duplicate)</td></tr>
-<tr><td><code>PayloadTooLarge(msg)</code></td><td>413</td><td>Request body too large</td></tr>
-<tr><td><code>Internal(msg)</code> / <code>InternalError(msg)</code></td><td>500</td><td>Server error</td></tr>
-<tr><td><code>DatabaseError(msg)</code></td><td>500</td><td>Database operation failed</td></tr>
-<tr><td><code>StorageError(msg)</code></td><td>500</td><td>Storage operation failed</td></tr>
-<tr><td><code>ServiceUnavailable(msg)</code></td><td>503</td><td>Backend service down</td></tr>
+<div class="table-wrapper"><table><thead><tr><th>Macro</th><th>Handler Signature</th><th>Use Case</th></tr></thead><tbody>
+<tr><td><code>handler_loop!</code></td><td><code>fn(Request) -&gt; Response</code></td><td>Simple sync handlers</td></tr>
+<tr><td><code>handler_loop_result!</code></td><td><code>fn(Request) -&gt; Result&lt;Response, HandlerError&gt;</code></td><td>Sync with error handling</td></tr>
+<tr><td><code>handler_loop_async!</code></td><td><code>async fn(Request) -&gt; Response</code></td><td>Async handlers</td></tr>
+<tr><td><code>handler_loop_async_result!</code></td><td><code>async fn(Request) -&gt; Result&lt;Response, HandlerError&gt;</code></td><td>Async with error handling</td></tr>
 </tbody></table>
 </div>
-<h2 id="handlererror-definition"><a class="header" href="#handlererror-definition">HandlerError Definition</a></h2>
+<h2 id="sync-handlers"><a class="header" href="#sync-handlers">Sync Handlers</a></h2>
+<h3 id="handler_loop"><a class="header" href="#handler_loop"><code>handler_loop!</code></a></h3>
+<p>For simple synchronous handlers that return a <code>Response</code> directly.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
-</span>pub enum HandlerError {
-    // 4xx Client Errors
-    BadRequest(String),
-    ValidationError(String),
-    Unauthorized(String),
-    Forbidden(String),
-    NotFound,
-    NotFoundMessage(String),
-    MethodNotAllowed(String),
-    Conflict(String),
-    PayloadTooLarge(String),
+</span>use rust_edge_gateway_sdk::prelude::*;
 
-    // 5xx Server Errors
-    IpcError(String),
-    SerializationError(serde_json::Error),
-    DatabaseError(String),
-    RedisError(String),
-    StorageError(String),
-    InternalError(String),
-    Internal(String),
-    ServiceUnavailable(String),
-}
-<span class="boring">}</span></code></pre></pre>
-<h2 id="key-features"><a class="header" href="#key-features">Key Features</a></h2>
-<h3 id="automatic-response-conversion"><a class="header" href="#automatic-response-conversion">Automatic Response Conversion</a></h3>
-<p><code>HandlerError</code> implements <code>From&lt;HandlerError&gt; for Response</code>, so you can use <code>.into()</code>:</p>
-<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span>fn handle(req: Request) -&gt; Response {
-    match process(&amp;req) {
-        Ok(data) =&gt; Response::ok(data),
-        Err(e) =&gt; e.into(),  // Automatically converts to Response
-    }
-}
-<span class="boring">}</span></code></pre></pre>
-<h3 id="use-with-handler_loop_result"><a class="header" href="#use-with-handler_loop_result">Use with handler_loop_result!</a></h3>
-<p>The <code>handler_loop_result!</code> macro automatically converts errors to responses:</p>
-<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span>fn handle(req: Request) -&gt; Result&lt;Response, HandlerError&gt; {
-    let data: MyInput = req.json()?;  // BadRequest on parse failure
-    let id: i64 = req.require_path_param("id")?;  // BadRequest if missing
-    let auth = req.require_header("Authorization")?;  // BadRequest if missing
-
-    Ok(Response::ok(json!({"id": id, "data": data})))
+fn handle(req: Request) -&gt; Response {
+    Response::ok(json!({"path": req.path, "method": req.method}))
 }
 
-handler_loop_result!(handle);  // Errors auto-convert to HTTP responses
+handler_loop!(handle);
 <span class="boring">}</span></code></pre></pre>
-<h2 id="methods"><a class="header" href="#methods">Methods</a></h2>
-<h3 id="status_code---u16"><a class="header" href="#status_code---u16"><code>status_code() -&gt; u16</code></a></h3>
-<p>Get the HTTP status code for this error:</p>
-<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span>let err = HandlerError::NotFound;
-assert_eq!(err.status_code(), 404);
-
-let err = HandlerError::BadRequest("Invalid input".into());
-assert_eq!(err.status_code(), 400);
-<span class="boring">}</span></code></pre></pre>
-<h3 id="to_response---response"><a class="header" href="#to_response---response"><code>to_response() -&gt; Response</code></a></h3>
-<p>Convert the error to an HTTP Response:</p>
-<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span>let err = HandlerError::ValidationError("Invalid email".to_string());
-let response = err.to_response();
-// Response { status: 400, body: {"error": "Validation error: Invalid email"} }
-<span class="boring">}</span></code></pre></pre>
-<h2 id="usage-patterns"><a class="header" href="#usage-patterns">Usage Patterns</a></h2>
-<h3 id="clean-result-based-handlers"><a class="header" href="#clean-result-based-handlers">Clean Result-Based Handlers</a></h3>
+<h3 id="handler_loop_result"><a class="header" href="#handler_loop_result"><code>handler_loop_result!</code></a></h3>
+<p>For handlers that return <code>Result&lt;Response, HandlerError&gt;</code>. Errors are automatically converted to HTTP responses.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>use rust_edge_gateway_sdk::prelude::*;
 
 #[derive(Deserialize)]
-struct CreateUser {
-    email: String,
+struct CreateItem {
     name: String,
+    price: f64,
 }
 
 fn handle(req: Request) -&gt; Result&lt;Response, HandlerError&gt; {
-    // Parse body - returns BadRequest on failure
-    let body: CreateUser = req.json()?;
-
-    // Validate
-    if body.email.is_empty() {
-        return Err(HandlerError::ValidationError("Email is required".into()));
+    // These all use ? operator - errors become HTTP responses
+    let auth = req.require_header("Authorization")?;
+    let item: CreateItem = req.json()?;
+    let id: i64 = req.require_path_param("id")?;
+    
+    if item.price &lt; 0.0 {
+        return Err(HandlerError::ValidationError("Price cannot be negative".into()));
     }
-
-    // Check authentication
-    let token = req.require_header("Authorization")?;
-
-    // Get typed path parameter
-    let user_id: i64 = req.require_path_param("id")?;
-
-    // Simulate database operation
-    let user = find_user(user_id)
-        .ok_or(HandlerError::NotFound)?;
-
-    Ok(Response::ok(user))
+    
+    Ok(Response::created(json!({"id": id, "item": item.name})))
 }
 
 handler_loop_result!(handle);
 <span class="boring">}</span></code></pre></pre>
-<h3 id="converting-external-errors"><a class="header" href="#converting-external-errors">Converting External Errors</a></h3>
-<p>Map external library errors to <code>HandlerError</code>:</p>
+<h2 id="async-handlers"><a class="header" href="#async-handlers">Async Handlers</a></h2>
+<p>Async handlers require the <code>async</code> feature to be enabled.</p>
+<h3 id="cargotoml"><a class="header" href="#cargotoml">Cargo.toml</a></h3>
+<pre><code class="language-toml">[dependencies]
+rust-edge-gateway-sdk = { git = "https://github.com/user/rust-edge-gateway", features = ["async"] }
+tokio = { version = "1", features = ["full"] }
+</code></pre>
+<h3 id="handler_loop_async"><a class="header" href="#handler_loop_async"><code>handler_loop_async!</code></a></h3>
+<p>For async handlers that return a <code>Response</code> directly. A Tokio runtime is created automatically.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
-</span>fn save_to_database(data: &amp;MyData) -&gt; Result&lt;i64, HandlerError&gt; {
-    let conn = get_connection()
-        .map_err(|e| HandlerError::DatabaseError(e.to_string()))?;
+</span>use rust_edge_gateway_sdk::prelude::*;
 
-    let id = conn.insert(data)
-        .map_err(|e| HandlerError::DatabaseError(e.to_string()))?;
-
-    Ok(id)
+async fn handle(req: Request) -&gt; Response {
+    let data = fetch_from_api().await;
+    Response::ok(data)
 }
+
+handler_loop_async!(handle);
 <span class="boring">}</span></code></pre></pre>
-<h3 id="custom-error-types"><a class="header" href="#custom-error-types">Custom Error Types</a></h3>
-<p>Define domain-specific errors and convert to <code>HandlerError</code>:</p>
+<h3 id="handler_loop_async_result"><a class="header" href="#handler_loop_async_result"><code>handler_loop_async_result!</code></a></h3>
+<p>For async handlers with Result-based error handling. Combines async support with automatic error conversion.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
-</span>enum AppError {
-    UserNotFound(String),
-    DuplicateEmail,
-    InvalidCredentials,
-    RateLimited,
-}
+</span>use rust_edge_gateway_sdk::prelude::*;
 
-impl From&lt;AppError&gt; for HandlerError {
-    fn from(e: AppError) -&gt; Self {
-        match e {
-            AppError::UserNotFound(id) =&gt;
-                HandlerError::NotFoundMessage(format!("User {} not found", id)),
-            AppError::DuplicateEmail =&gt;
-                HandlerError::Conflict("Email already registered".into()),
-            AppError::InvalidCredentials =&gt;
-                HandlerError::Unauthorized("Invalid email or password".into()),
-            AppError::RateLimited =&gt;
-                HandlerError::ServiceUnavailable("Rate limit exceeded, try again later".into()),
-        }
-    }
-}
-
-fn handle(req: Request) -&gt; Result&lt;Response, HandlerError&gt; {
-    let result = business_logic(&amp;req)
-        .map_err(HandlerError::from)?;  // Convert AppError to HandlerError
-    Ok(Response::ok(result))
-}
-<span class="boring">}</span></code></pre></pre>
-<h3 id="async-error-handling"><a class="header" href="#async-error-handling">Async Error Handling</a></h3>
-<p>Works the same with async handlers:</p>
-<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span>async fn handle(req: Request) -&gt; Result&lt;Response, HandlerError&gt; {
+async fn handle(req: Request) -&gt; Result&lt;Response, HandlerError&gt; {
     let data: CreateItem = req.json()?;
-
+    
+    // Async database call
     let id = database.insert(&amp;data).await
         .map_err(|e| HandlerError::DatabaseError(e.to_string()))?;
-
-    let uploaded = s3.put_object(&amp;data.file).await
+    
+    // Async file upload
+    let url = s3.upload(&amp;data.file).await
         .map_err(|e| HandlerError::StorageError(e.to_string()))?;
-
+    
     Ok(Response::created(json!({
         "id": id,
-        "file_url": uploaded.url
+        "file_url": url
     })))
 }
 
 handler_loop_async_result!(handle);
 <span class="boring">}</span></code></pre></pre>
-<h3 id="logging-errors"><a class="header" href="#logging-errors">Logging Errors</a></h3>
-<p>Always log errors for debugging (logs go to stderr, captured by gateway):</p>
+<h2 id="runtime-management"><a class="header" href="#runtime-management">Runtime Management</a></h2>
+<p><strong>Important:</strong> The async macros create a single Tokio runtime that persists across all requests. This is more efficient than creating a runtime per request.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
-</span>fn handle(req: Request) -&gt; Result&lt;Response, HandlerError&gt; {
-    match process(&amp;req) {
-        Ok(data) =&gt; Ok(Response::ok(data)),
-        Err(e) =&gt; {
-            eprintln!("[{}] Error: {} ({})",
-                req.request_id,
-                e,
-                e.status_code()
-            );
-            Err(e)  // Will be converted to Response by handler_loop_result!
-        }
+</span>// DON'T do this - creates runtime per request (inefficient):
+fn handle(req: Request) -&gt; Response {
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    rt.block_on(async {
+        // async work
+    })
+}
+
+// DO this - runtime is created once by the macro:
+async fn handle(req: Request) -&gt; Response {
+    // async work directly
+}
+handler_loop_async!(handle);
+<span class="boring">}</span></code></pre></pre>
+<h2 id="choosing-the-right-macro"><a class="header" href="#choosing-the-right-macro">Choosing the Right Macro</a></h2>
+<div class="table-wrapper"><table><thead><tr><th>Your handler needs...</th><th>Use this macro</th></tr></thead><tbody>
+<tr><td>Simple sync logic</td><td><code>handler_loop!</code></td></tr>
+<tr><td>Sync with <code>?</code> operator</td><td><code>handler_loop_result!</code></td></tr>
+<tr><td>Async operations (DB, HTTP, files)</td><td><code>handler_loop_async!</code></td></tr>
+<tr><td>Async with <code>?</code> operator</td><td><code>handler_loop_async_result!</code></td></tr>
+</tbody></table>
+</div>
+<h2 id="example-complete-crud-handler"><a class="header" href="#example-complete-crud-handler">Example: Complete CRUD Handler</a></h2>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>use rust_edge_gateway_sdk::prelude::*;
+
+async fn handle(req: Request) -&gt; Result&lt;Response, HandlerError&gt; {
+    match (req.method.as_str(), req.path.as_str()) {
+        ("GET", "/items") =&gt; list_items().await,
+        ("POST", "/items") =&gt; create_item(&amp;req).await,
+        ("GET", _) if req.path.starts_with("/items/") =&gt; get_item(&amp;req).await,
+        ("DELETE", _) if req.path.starts_with("/items/") =&gt; delete_item(&amp;req).await,
+        _ =&gt; Err(HandlerError::MethodNotAllowed("Use GET, POST, or DELETE".into())),
     }
 }
+
+async fn list_items() -&gt; Result&lt;Response, HandlerError&gt; {
+    let items = db::get_all_items().await
+        .map_err(|e| HandlerError::DatabaseError(e.to_string()))?;
+    Ok(Response::ok(json!({"items": items})))
+}
+
+async fn create_item(req: &amp;Request) -&gt; Result&lt;Response, HandlerError&gt; {
+    let item: NewItem = req.json()?;
+    let id = db::insert_item(&amp;item).await
+        .map_err(|e| HandlerError::DatabaseError(e.to_string()))?;
+    Ok(Response::created(json!({"id": id})))
+}
+
+handler_loop_async_result!(handle);
 <span class="boring">}</span></code></pre></pre>
-<h2 id="best-practices"><a class="header" href="#best-practices">Best Practices</a></h2>
-<ol>
-<li><strong>Use <code>handler_loop_result!</code></strong> - Simplifies error handling with automatic conversion</li>
-<li><strong>Use specific error variants</strong> - <code>BadRequest</code> vs <code>ValidationError</code> vs <code>Unauthorized</code></li>
-<li><strong>Always log errors</strong> - Use <code>eprintln!</code> for debugging</li>
-<li><strong>Convert early</strong> - Map external errors to <code>HandlerError</code> at the boundary</li>
-<li><strong>Include context</strong> - Error messages should help debugging</li>
-</ol>
 
                     </main>
 
                     <nav class="nav-wrapper" aria-label="Page navigation">
                         <!-- Mobile navigation buttons -->
-                            <a rel="prev" href="../sdk/response.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                            <a rel="prev" href="../getting-started/lifecycle.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                                 <i class="fa fa-angle-left"></i>
                             </a>
 
-                            <a rel="next prefetch" href="../sdk/services.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                            <a rel="next prefetch" href="../sdk/request.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                                 <i class="fa fa-angle-right"></i>
                             </a>
 
@@ -418,11 +351,11 @@ handler_loop_async_result!(handle);
             </div>
 
             <nav class="nav-wide-wrapper" aria-label="Page navigation">
-                    <a rel="prev" href="../sdk/response.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                    <a rel="prev" href="../getting-started/lifecycle.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                         <i class="fa fa-angle-left"></i>
                     </a>
 
-                    <a rel="next prefetch" href="../sdk/services.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                    <a rel="next prefetch" href="../sdk/request.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                         <i class="fa fa-angle-right"></i>
                     </a>
             </nav>

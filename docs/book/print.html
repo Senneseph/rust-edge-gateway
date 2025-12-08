@@ -670,6 +670,157 @@ fn process_request(req: &amp;Request) -&gt; Result&lt;JsonValue, HandlerError&gt
     Ok(json!({"result": "success"}))
 }
 <span class="boring">}</span></code></pre></pre>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="handler-macros"><a class="header" href="#handler-macros">Handler Macros</a></h1>
+<p>The SDK provides several macros for running handler loops with different patterns.</p>
+<h2 id="quick-reference"><a class="header" href="#quick-reference">Quick Reference</a></h2>
+<div class="table-wrapper"><table><thead><tr><th>Macro</th><th>Handler Signature</th><th>Use Case</th></tr></thead><tbody>
+<tr><td><code>handler_loop!</code></td><td><code>fn(Request) -&gt; Response</code></td><td>Simple sync handlers</td></tr>
+<tr><td><code>handler_loop_result!</code></td><td><code>fn(Request) -&gt; Result&lt;Response, HandlerError&gt;</code></td><td>Sync with error handling</td></tr>
+<tr><td><code>handler_loop_async!</code></td><td><code>async fn(Request) -&gt; Response</code></td><td>Async handlers</td></tr>
+<tr><td><code>handler_loop_async_result!</code></td><td><code>async fn(Request) -&gt; Result&lt;Response, HandlerError&gt;</code></td><td>Async with error handling</td></tr>
+</tbody></table>
+</div>
+<h2 id="sync-handlers"><a class="header" href="#sync-handlers">Sync Handlers</a></h2>
+<h3 id="handler_loop"><a class="header" href="#handler_loop"><code>handler_loop!</code></a></h3>
+<p>For simple synchronous handlers that return a <code>Response</code> directly.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>use rust_edge_gateway_sdk::prelude::*;
+
+fn handle(req: Request) -&gt; Response {
+    Response::ok(json!({"path": req.path, "method": req.method}))
+}
+
+handler_loop!(handle);
+<span class="boring">}</span></code></pre></pre>
+<h3 id="handler_loop_result"><a class="header" href="#handler_loop_result"><code>handler_loop_result!</code></a></h3>
+<p>For handlers that return <code>Result&lt;Response, HandlerError&gt;</code>. Errors are automatically converted to HTTP responses.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>use rust_edge_gateway_sdk::prelude::*;
+
+#[derive(Deserialize)]
+struct CreateItem {
+    name: String,
+    price: f64,
+}
+
+fn handle(req: Request) -&gt; Result&lt;Response, HandlerError&gt; {
+    // These all use ? operator - errors become HTTP responses
+    let auth = req.require_header("Authorization")?;
+    let item: CreateItem = req.json()?;
+    let id: i64 = req.require_path_param("id")?;
+    
+    if item.price &lt; 0.0 {
+        return Err(HandlerError::ValidationError("Price cannot be negative".into()));
+    }
+    
+    Ok(Response::created(json!({"id": id, "item": item.name})))
+}
+
+handler_loop_result!(handle);
+<span class="boring">}</span></code></pre></pre>
+<h2 id="async-handlers"><a class="header" href="#async-handlers">Async Handlers</a></h2>
+<p>Async handlers require the <code>async</code> feature to be enabled.</p>
+<h3 id="cargotoml-1"><a class="header" href="#cargotoml-1">Cargo.toml</a></h3>
+<pre><code class="language-toml">[dependencies]
+rust-edge-gateway-sdk = { git = "https://github.com/user/rust-edge-gateway", features = ["async"] }
+tokio = { version = "1", features = ["full"] }
+</code></pre>
+<h3 id="handler_loop_async"><a class="header" href="#handler_loop_async"><code>handler_loop_async!</code></a></h3>
+<p>For async handlers that return a <code>Response</code> directly. A Tokio runtime is created automatically.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>use rust_edge_gateway_sdk::prelude::*;
+
+async fn handle(req: Request) -&gt; Response {
+    let data = fetch_from_api().await;
+    Response::ok(data)
+}
+
+handler_loop_async!(handle);
+<span class="boring">}</span></code></pre></pre>
+<h3 id="handler_loop_async_result"><a class="header" href="#handler_loop_async_result"><code>handler_loop_async_result!</code></a></h3>
+<p>For async handlers with Result-based error handling. Combines async support with automatic error conversion.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>use rust_edge_gateway_sdk::prelude::*;
+
+async fn handle(req: Request) -&gt; Result&lt;Response, HandlerError&gt; {
+    let data: CreateItem = req.json()?;
+    
+    // Async database call
+    let id = database.insert(&amp;data).await
+        .map_err(|e| HandlerError::DatabaseError(e.to_string()))?;
+    
+    // Async file upload
+    let url = s3.upload(&amp;data.file).await
+        .map_err(|e| HandlerError::StorageError(e.to_string()))?;
+    
+    Ok(Response::created(json!({
+        "id": id,
+        "file_url": url
+    })))
+}
+
+handler_loop_async_result!(handle);
+<span class="boring">}</span></code></pre></pre>
+<h2 id="runtime-management"><a class="header" href="#runtime-management">Runtime Management</a></h2>
+<p><strong>Important:</strong> The async macros create a single Tokio runtime that persists across all requests. This is more efficient than creating a runtime per request.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>// DON'T do this - creates runtime per request (inefficient):
+fn handle(req: Request) -&gt; Response {
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    rt.block_on(async {
+        // async work
+    })
+}
+
+// DO this - runtime is created once by the macro:
+async fn handle(req: Request) -&gt; Response {
+    // async work directly
+}
+handler_loop_async!(handle);
+<span class="boring">}</span></code></pre></pre>
+<h2 id="choosing-the-right-macro"><a class="header" href="#choosing-the-right-macro">Choosing the Right Macro</a></h2>
+<div class="table-wrapper"><table><thead><tr><th>Your handler needs...</th><th>Use this macro</th></tr></thead><tbody>
+<tr><td>Simple sync logic</td><td><code>handler_loop!</code></td></tr>
+<tr><td>Sync with <code>?</code> operator</td><td><code>handler_loop_result!</code></td></tr>
+<tr><td>Async operations (DB, HTTP, files)</td><td><code>handler_loop_async!</code></td></tr>
+<tr><td>Async with <code>?</code> operator</td><td><code>handler_loop_async_result!</code></td></tr>
+</tbody></table>
+</div>
+<h2 id="example-complete-crud-handler"><a class="header" href="#example-complete-crud-handler">Example: Complete CRUD Handler</a></h2>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>use rust_edge_gateway_sdk::prelude::*;
+
+async fn handle(req: Request) -&gt; Result&lt;Response, HandlerError&gt; {
+    match (req.method.as_str(), req.path.as_str()) {
+        ("GET", "/items") =&gt; list_items().await,
+        ("POST", "/items") =&gt; create_item(&amp;req).await,
+        ("GET", _) if req.path.starts_with("/items/") =&gt; get_item(&amp;req).await,
+        ("DELETE", _) if req.path.starts_with("/items/") =&gt; delete_item(&amp;req).await,
+        _ =&gt; Err(HandlerError::MethodNotAllowed("Use GET, POST, or DELETE".into())),
+    }
+}
+
+async fn list_items() -&gt; Result&lt;Response, HandlerError&gt; {
+    let items = db::get_all_items().await
+        .map_err(|e| HandlerError::DatabaseError(e.to_string()))?;
+    Ok(Response::ok(json!({"items": items})))
+}
+
+async fn create_item(req: &amp;Request) -&gt; Result&lt;Response, HandlerError&gt; {
+    let item: NewItem = req.json()?;
+    let id = db::insert_item(&amp;item).await
+        .map_err(|e| HandlerError::DatabaseError(e.to_string()))?;
+    Ok(Response::created(json!({"id": id})))
+}
+
+handler_loop_async_result!(handle);
+<span class="boring">}</span></code></pre></pre>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="request"><a class="header" href="#request">Request</a></h1>
 <p>The <code>Request</code> struct represents an incoming HTTP request.</p>
 <h2 id="definition"><a class="header" href="#definition">Definition</a></h2>
@@ -698,9 +849,10 @@ fn process_request(req: &amp;Request) -&gt; Result&lt;JsonValue, HandlerError&gt
 <tr><td><code>request_id</code></td><td><code>String</code></td><td>Unique identifier for request tracing</td></tr>
 </tbody></table>
 </div>
-<h2 id="methods"><a class="header" href="#methods">Methods</a></h2>
-<h3 id="jsont"><a class="header" href="#jsont"><code>json&lt;T&gt;()</code></a></h3>
-<p>Parse the body as JSON into a typed struct.</p>
+<h2 id="methods-reference"><a class="header" href="#methods-reference">Methods Reference</a></h2>
+<h3 id="json-parsing"><a class="header" href="#json-parsing">JSON Parsing</a></h3>
+<h4 id="jsont---resultt-handlererror"><a class="header" href="#jsont---resultt-handlererror"><code>json&lt;T&gt;() -&gt; Result&lt;T, HandlerError&gt;</code></a></h4>
+<p>Parse the body as JSON into a typed struct. Returns <code>HandlerError::BadRequest</code> on parse failure.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>#[derive(Deserialize)]
@@ -709,81 +861,175 @@ struct CreateUser {
     email: String,
 }
 
-fn handle(req: Request) -&gt; Response {
-    match req.json::&lt;CreateUser&gt;() {
-        Ok(user) =&gt; Response::ok(json!({"name": user.name})),
-        Err(e) =&gt; Response::bad_request(format!("Invalid JSON: {}", e)),
-    }
+fn handle(req: Request) -&gt; Result&lt;Response, HandlerError&gt; {
+    let user: CreateUser = req.json()?;  // Uses ? operator naturally
+    Ok(Response::ok(json!({"name": user.name})))
 }
+
+handler_loop_result!(handle);
 <span class="boring">}</span></code></pre></pre>
-<h3 id="query_paramkey-str"><a class="header" href="#query_paramkey-str"><code>query_param(key: &amp;str)</code></a></h3>
-<p>Get a query parameter by name.</p>
+<h3 id="query-parameters-1"><a class="header" href="#query-parameters-1">Query Parameters</a></h3>
+<h4 id="query_paramkey-str---optionstring"><a class="header" href="#query_paramkey-str---optionstring"><code>query_param(key: &amp;str) -&gt; Option&lt;&amp;String&gt;</code></a></h4>
+<p>Get a query parameter as a string reference.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
-</span>fn handle(req: Request) -&gt; Response {
-    // URL: /search?q=rust&amp;page=2
-    let query = req.query_param("q").unwrap_or(&amp;"".to_string());
-    let page = req.query_param("page")
-        .and_then(|p| p.parse::&lt;u32&gt;().ok())
-        .unwrap_or(1);
-    
-    Response::ok(json!({
-        "query": query,
-        "page": page,
-    }))
+</span>// URL: /search?q=rust
+let query = req.query_param("q"); // Some(&amp;"rust".to_string())
+<span class="boring">}</span></code></pre></pre>
+<h4 id="query_param_ast-fromstrkey-str---optiont"><a class="header" href="#query_param_ast-fromstrkey-str---optiont"><code>query_param_as&lt;T: FromStr&gt;(key: &amp;str) -&gt; Option&lt;T&gt;</code></a></h4>
+<p>Get a query parameter parsed as a specific type. Returns <code>None</code> if missing or can't be parsed.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>// URL: /items?page=2&amp;limit=10
+let page: i64 = req.query_param_as("page").unwrap_or(1);
+let limit: usize = req.query_param_as("limit").unwrap_or(20);
+let active: bool = req.query_param_as("active").unwrap_or(false);
+<span class="boring">}</span></code></pre></pre>
+<h4 id="require_query_paramt-fromstrkey-str---resultt-handlererror"><a class="header" href="#require_query_paramt-fromstrkey-str---resultt-handlererror"><code>require_query_param&lt;T: FromStr&gt;(key: &amp;str) -&gt; Result&lt;T, HandlerError&gt;</code></a></h4>
+<p>Get a required query parameter. Returns <code>HandlerError::BadRequest</code> if missing or invalid.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>fn handle(req: Request) -&gt; Result&lt;Response, HandlerError&gt; {
+    let page: i64 = req.require_query_param("page")?;
+    let limit: usize = req.require_query_param("limit")?;
+    Ok(Response::ok(json!({"page": page, "limit": limit})))
 }
 <span class="boring">}</span></code></pre></pre>
-<h3 id="path_paramkey-str"><a class="header" href="#path_paramkey-str"><code>path_param(key: &amp;str)</code></a></h3>
+<h3 id="path-parameters-1"><a class="header" href="#path-parameters-1">Path Parameters</a></h3>
+<h4 id="path_paramkey-str---optionstring"><a class="header" href="#path_paramkey-str---optionstring"><code>path_param(key: &amp;str) -&gt; Option&lt;&amp;String&gt;</code></a></h4>
 <p>Get a path parameter extracted from the route pattern.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>// Endpoint path: /users/{id}/posts/{post_id}
 // Request: /users/123/posts/456
 
-fn handle(req: Request) -&gt; Response {
-    let user_id = req.path_param("id");       // Some("123")
-    let post_id = req.path_param("post_id");  // Some("456")
-    
-    Response::ok(json!({
-        "user_id": user_id,
-        "post_id": post_id,
-    }))
+let user_id = req.path_param("id");       // Some(&amp;"123".to_string())
+let post_id = req.path_param("post_id");  // Some(&amp;"456".to_string())
+<span class="boring">}</span></code></pre></pre>
+<h4 id="path_param_ast-fromstrkey-str---optiont"><a class="header" href="#path_param_ast-fromstrkey-str---optiont"><code>path_param_as&lt;T: FromStr&gt;(key: &amp;str) -&gt; Option&lt;T&gt;</code></a></h4>
+<p>Get a path parameter parsed as a specific type.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>// Route: /users/{id}
+let user_id: i64 = req.path_param_as("id").unwrap_or(0);
+let uuid: Uuid = req.path_param_as("id").ok_or(HandlerError::BadRequest("Invalid UUID".into()))?;
+<span class="boring">}</span></code></pre></pre>
+<h4 id="require_path_paramt-fromstrkey-str---resultt-handlererror"><a class="header" href="#require_path_paramt-fromstrkey-str---resultt-handlererror"><code>require_path_param&lt;T: FromStr&gt;(key: &amp;str) -&gt; Result&lt;T, HandlerError&gt;</code></a></h4>
+<p>Get a required path parameter. Returns <code>HandlerError::BadRequest</code> if missing or invalid.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>fn handle(req: Request) -&gt; Result&lt;Response, HandlerError&gt; {
+    let user_id: i64 = req.require_path_param("id")?;
+    Ok(Response::ok(json!({"user_id": user_id})))
 }
 <span class="boring">}</span></code></pre></pre>
-<h3 id="headerkey-str"><a class="header" href="#headerkey-str"><code>header(key: &amp;str)</code></a></h3>
+<h3 id="headers-1"><a class="header" href="#headers-1">Headers</a></h3>
+<h4 id="headerkey-str---optionstring"><a class="header" href="#headerkey-str---optionstring"><code>header(key: &amp;str) -&gt; Option&lt;&amp;String&gt;</code></a></h4>
 <p>Get a header value (case-insensitive lookup).</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
-</span>fn handle(req: Request) -&gt; Response {
-    // These all work:
-    let auth = req.header("Authorization");
-    let auth = req.header("authorization");
-    let auth = req.header("AUTHORIZATION");
-    
-    let content_type = req.header("Content-Type");
-    let user_agent = req.header("User-Agent");
-    
-    Response::ok(json!({
-        "has_auth": auth.is_some(),
-    }))
+</span>// All of these work:
+let auth = req.header("Authorization");
+let auth = req.header("authorization");
+let auth = req.header("AUTHORIZATION");
+<span class="boring">}</span></code></pre></pre>
+<h4 id="require_headerkey-str---resultstring-handlererror"><a class="header" href="#require_headerkey-str---resultstring-handlererror"><code>require_header(key: &amp;str) -&gt; Result&lt;&amp;String, HandlerError&gt;</code></a></h4>
+<p>Get a required header. Returns <code>HandlerError::BadRequest</code> if missing.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>fn handle(req: Request) -&gt; Result&lt;Response, HandlerError&gt; {
+    let auth = req.require_header("Authorization")?;
+    let api_key = req.require_header("X-API-Key")?;
+    Ok(Response::ok(json!({"authenticated": true})))
 }
 <span class="boring">}</span></code></pre></pre>
-<h3 id="is_methodmethod-str"><a class="header" href="#is_methodmethod-str"><code>is_method(method: &amp;str)</code></a></h3>
+<h3 id="request-inspection"><a class="header" href="#request-inspection">Request Inspection</a></h3>
+<h4 id="is_methodmethod-str---bool"><a class="header" href="#is_methodmethod-str---bool"><code>is_method(method: &amp;str) -&gt; bool</code></a></h4>
 <p>Check if the request method matches (case-insensitive).</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
-</span>fn handle(req: Request) -&gt; Response {
-    if req.is_method("GET") {
-        return get_resource(&amp;req);
-    } else if req.is_method("POST") {
-        return create_resource(&amp;req);
-    }
-    
-    Response::json(405, json!({"error": "Method not allowed"}))
+</span>if req.is_method("POST") {
+    // Handle POST
 }
 <span class="boring">}</span></code></pre></pre>
-<h2 id="examples"><a class="header" href="#examples">Examples</a></h2>
-<h3 id="complete-request-handler"><a class="header" href="#complete-request-handler">Complete Request Handler</a></h3>
+<h4 id="content_type---optionstring"><a class="header" href="#content_type---optionstring"><code>content_type() -&gt; Option&lt;&amp;String&gt;</code></a></h4>
+<p>Get the Content-Type header value.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>if let Some(ct) = req.content_type() {
+    eprintln!("Content-Type: {}", ct);
+}
+<span class="boring">}</span></code></pre></pre>
+<h4 id="is_json---bool"><a class="header" href="#is_json---bool"><code>is_json() -&gt; bool</code></a></h4>
+<p>Check if the request has a JSON content type.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>if req.is_json() {
+    let data: MyStruct = req.json()?;
+}
+<span class="boring">}</span></code></pre></pre>
+<h4 id="is_multipart---bool"><a class="header" href="#is_multipart---bool"><code>is_multipart() -&gt; bool</code></a></h4>
+<p>Check if the request has a multipart/form-data content type.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>if req.is_multipart() {
+    let multipart = req.multipart()?;
+}
+<span class="boring">}</span></code></pre></pre>
+<h4 id="body_bytes---vecu8"><a class="header" href="#body_bytes---vecu8"><code>body_bytes() -&gt; Vec&lt;u8&gt;</code></a></h4>
+<p>Get the raw body as bytes.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>let raw_body = req.body_bytes();
+<span class="boring">}</span></code></pre></pre>
+<h3 id="multipart-form-data"><a class="header" href="#multipart-form-data">Multipart Form Data</a></h3>
+<h4 id="multipart---resultmultipartdata-handlererror"><a class="header" href="#multipart---resultmultipartdata-handlererror"><code>multipart() -&gt; Result&lt;MultipartData, HandlerError&gt;</code></a></h4>
+<p>Parse multipart/form-data body for file uploads.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>fn handle(req: Request) -&gt; Result&lt;Response, HandlerError&gt; {
+    let multipart = req.multipart()?;
+
+    // Get text fields
+    let title = multipart.require_field("title")?;
+    let description = multipart.field("description").unwrap_or(&amp;"".to_string());
+
+    // Get uploaded file
+    let file = multipart.require_file("upload")?;
+    eprintln!("Received file: {} ({} bytes)", file.filename, file.data.len());
+
+    Ok(Response::ok(json!({
+        "title": title,
+        "filename": file.filename,
+        "size": file.data.len()
+    })))
+}
+<span class="boring">}</span></code></pre></pre>
+<h2 id="multipartdata"><a class="header" href="#multipartdata">MultipartData</a></h2>
+<h3 id="fields-1"><a class="header" href="#fields-1">Fields</a></h3>
+<div class="table-wrapper"><table><thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>fields</code></td><td><code>HashMap&lt;String, String&gt;</code></td><td>Text form fields</td></tr>
+<tr><td><code>files</code></td><td><code>HashMap&lt;String, MultipartFile&gt;</code></td><td>Uploaded files</td></tr>
+</tbody></table>
+</div>
+<h3 id="methods"><a class="header" href="#methods">Methods</a></h3>
+<div class="table-wrapper"><table><thead><tr><th>Method</th><th>Returns</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>field(name)</code></td><td><code>Option&lt;&amp;String&gt;</code></td><td>Get a text field</td></tr>
+<tr><td><code>require_field(name)</code></td><td><code>Result&lt;&amp;String, HandlerError&gt;</code></td><td>Get required text field</td></tr>
+<tr><td><code>file(name)</code></td><td><code>Option&lt;&amp;MultipartFile&gt;</code></td><td>Get an uploaded file</td></tr>
+<tr><td><code>require_file(name)</code></td><td><code>Result&lt;&amp;MultipartFile, HandlerError&gt;</code></td><td>Get required file</td></tr>
+</tbody></table>
+</div>
+<h2 id="multipartfile"><a class="header" href="#multipartfile">MultipartFile</a></h2>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub struct MultipartFile {
+    pub filename: String,      // Original filename
+    pub content_type: String,  // MIME type
+    pub data: Vec&lt;u8&gt;,         // File content
+}
+<span class="boring">}</span></code></pre></pre>
+<h2 id="complete-example"><a class="header" href="#complete-example">Complete Example</a></h2>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>use rust_edge_gateway_sdk::prelude::*;
@@ -794,44 +1040,46 @@ struct UpdateProfile {
     bio: Option&lt;String&gt;,
 }
 
-fn handle(req: Request) -&gt; Response {
+fn handle(req: Request) -&gt; Result&lt;Response, HandlerError&gt; {
     // Log request info
-    eprintln!("[{}] {} {} from {:?}", 
-        req.request_id, 
-        req.method, 
-        req.path,
-        req.client_ip
-    );
-    
+    eprintln!("[{}] {} {} from {:?}",
+        req.request_id, req.method, req.path, req.client_ip);
+
     // Check authentication
-    let token = match req.header("Authorization") {
-        Some(t) =&gt; t,
-        None =&gt; return Response::json(401, json!({"error": "Unauthorized"})),
-    };
-    
-    // Get path parameter
-    let user_id = match req.path_param("id") {
-        Some(id) =&gt; id.clone(),
-        None =&gt; return Response::bad_request("Missing user ID"),
-    };
-    
+    let token = req.require_header("Authorization")?;
+
+    // Get path parameter (typed)
+    let user_id: i64 = req.require_path_param("id")?;
+
     // Parse body
-    let update: UpdateProfile = match req.json() {
-        Ok(u) =&gt; u,
-        Err(e) =&gt; return Response::bad_request(format!("Invalid JSON: {}", e)),
-    };
-    
+    let update: UpdateProfile = req.json()?;
+
     // Process request...
-    Response::ok(json!({
+    Ok(Response::ok(json!({
         "user_id": user_id,
         "updated": true,
-    }))
+    })))
 }
 
-handler_loop!(handle);
+handler_loop_result!(handle);
 <span class="boring">}</span></code></pre></pre>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="response"><a class="header" href="#response">Response</a></h1>
 <p>The <code>Response</code> struct represents an outgoing HTTP response.</p>
+<h2 id="quick-reference-1"><a class="header" href="#quick-reference-1">Quick Reference</a></h2>
+<div class="table-wrapper"><table><thead><tr><th>Method</th><th>Status</th><th>Use Case</th></tr></thead><tbody>
+<tr><td><code>ok(body)</code></td><td>200</td><td>Successful GET/PUT</td></tr>
+<tr><td><code>created(body)</code></td><td>201</td><td>Successful POST</td></tr>
+<tr><td><code>accepted(body)</code></td><td>202</td><td>Async operation started</td></tr>
+<tr><td><code>no_content()</code></td><td>204</td><td>Successful DELETE</td></tr>
+<tr><td><code>bad_request(msg)</code></td><td>400</td><td>Invalid input</td></tr>
+<tr><td><code>unauthorized(msg)</code></td><td>401</td><td>Missing/invalid auth</td></tr>
+<tr><td><code>forbidden(msg)</code></td><td>403</td><td>Not authorized</td></tr>
+<tr><td><code>not_found()</code></td><td>404</td><td>Resource not found</td></tr>
+<tr><td><code>conflict(msg)</code></td><td>409</td><td>Resource conflict</td></tr>
+<tr><td><code>internal_error(msg)</code></td><td>500</td><td>Server error</td></tr>
+<tr><td><code>service_unavailable(msg)</code></td><td>503</td><td>Backend down</td></tr>
+</tbody></table>
+</div>
 <h2 id="definition-1"><a class="header" href="#definition-1">Definition</a></h2>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
@@ -841,26 +1089,19 @@ handler_loop!(handle);
     pub body: Option&lt;String&gt;,
 }
 <span class="boring">}</span></code></pre></pre>
-<h2 id="fields-1"><a class="header" href="#fields-1">Fields</a></h2>
-<div class="table-wrapper"><table><thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead><tbody>
-<tr><td><code>status</code></td><td><code>u16</code></td><td>HTTP status code (200, 404, 500, etc.)</td></tr>
-<tr><td><code>headers</code></td><td><code>HashMap&lt;String, String&gt;</code></td><td>Response headers</td></tr>
-<tr><td><code>body</code></td><td><code>Option&lt;String&gt;</code></td><td>Response body content</td></tr>
-</tbody></table>
-</div>
 <h2 id="constructor-methods"><a class="header" href="#constructor-methods">Constructor Methods</a></h2>
 <h3 id="newstatus-u16"><a class="header" href="#newstatus-u16"><code>new(status: u16)</code></a></h3>
 <p>Create a response with just a status code (no body).</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>Response::new(204)  // 204 No Content
+Response::new(301).with_header("Location", "/new-path")
 <span class="boring">}</span></code></pre></pre>
 <h3 id="okt-serializebody-t"><a class="header" href="#okt-serializebody-t"><code>ok&lt;T: Serialize&gt;(body: T)</code></a></h3>
 <p>Create a 200 OK response with JSON body.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>Response::ok(json!({"message": "Success"}))
-Response::ok(json!({"users": users}))
 Response::ok(my_struct)  // If my_struct implements Serialize
 <span class="boring">}</span></code></pre></pre>
 <h3 id="jsont-serializestatus-u16-body-t"><a class="header" href="#jsont-serializestatus-u16-body-t"><code>json&lt;T: Serialize&gt;(status: u16, body: T)</code></a></h3>
@@ -869,7 +1110,6 @@ Response::ok(my_struct)  // If my_struct implements Serialize
 </span><span class="boring">fn main() {
 </span>Response::json(201, json!({"id": "new-id"}))
 Response::json(400, json!({"error": "Invalid input"}))
-Response::json(403, json!({"error": "Forbidden"}))
 <span class="boring">}</span></code></pre></pre>
 <h3 id="textstatus-u16-body-impl-intostring"><a class="header" href="#textstatus-u16-body-impl-intostring"><code>text(status: u16, body: impl Into&lt;String&gt;)</code></a></h3>
 <p>Create a plain text response.</p>
@@ -878,41 +1118,95 @@ Response::json(403, json!({"error": "Forbidden"}))
 </span>Response::text(200, "Hello, World!")
 Response::text(500, "Internal Server Error")
 <span class="boring">}</span></code></pre></pre>
-<h3 id="createdt-serializebody-t"><a class="header" href="#createdt-serializebody-t"><code>created&lt;T: Serialize&gt;(body: T)</code></a></h3>
-<p>Create a 201 Created response with JSON body.</p>
+<h3 id="htmlstatus-u16-body-impl-intostring"><a class="header" href="#htmlstatus-u16-body-impl-intostring"><code>html(status: u16, body: impl Into&lt;String&gt;)</code></a></h3>
+<p>Create an HTML response.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
-</span>Response::created(json!({
-    "id": "12345",
-    "name": "New Resource",
-}))
+</span>Response::html(200, "&lt;html&gt;&lt;body&gt;&lt;h1&gt;Hello!&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;")
+<span class="boring">}</span></code></pre></pre>
+<h3 id="binarystatus-u16-data-impl-asrefu8-content_type-impl-intostring"><a class="header" href="#binarystatus-u16-data-impl-asrefu8-content_type-impl-intostring"><code>binary(status: u16, data: impl AsRef&lt;[u8]&gt;, content_type: impl Into&lt;String&gt;)</code></a></h3>
+<p>Create a binary response for files, images, etc.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>// Serve an image
+Response::binary(200, image_bytes, "image/png")
+
+// Serve a PDF with download prompt
+Response::binary(200, pdf_bytes, "application/pdf")
+    .with_header("Content-Disposition", "attachment; filename=\"report.pdf\"")
+
+// Inline image
+Response::binary(200, jpeg_bytes, "image/jpeg")
+    .with_header("Content-Disposition", "inline; filename=\"photo.jpg\"")
+<span class="boring">}</span></code></pre></pre>
+<h3 id="createdt-serializebody-t"><a class="header" href="#createdt-serializebody-t"><code>created&lt;T: Serialize&gt;(body: T)</code></a></h3>
+<p>Create a 201 Created response.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>Response::created(json!({"id": "12345", "name": "New Resource"}))
+<span class="boring">}</span></code></pre></pre>
+<h3 id="acceptedt-serializebody-t"><a class="header" href="#acceptedt-serializebody-t"><code>accepted&lt;T: Serialize&gt;(body: T)</code></a></h3>
+<p>Create a 202 Accepted response (for async operations).</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>Response::accepted(json!({"job_id": "abc123", "status": "processing"}))
 <span class="boring">}</span></code></pre></pre>
 <h3 id="no_content"><a class="header" href="#no_content"><code>no_content()</code></a></h3>
 <p>Create a 204 No Content response.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
-</span>Response::no_content()  // Used for DELETE or updates with no return data
+</span>Response::no_content()  // Used for DELETE
 <span class="boring">}</span></code></pre></pre>
-<h2 id="error-response-helpers"><a class="header" href="#error-response-helpers">Error Response Helpers</a></h2>
-<h3 id="not_found"><a class="header" href="#not_found"><code>not_found()</code></a></h3>
-<p>Create a 404 Not Found response.</p>
+<h3 id="redirectstatus-u16-location-impl-intostring"><a class="header" href="#redirectstatus-u16-location-impl-intostring"><code>redirect(status: u16, location: impl Into&lt;String&gt;)</code></a></h3>
+<p>Create a redirect response.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
-</span>Response::not_found()
-// Returns: {"error": "Not Found"}
+</span>Response::redirect(302, "https://example.com/new-location")
+Response::redirect(301, "/permanent-new-path")
 <span class="boring">}</span></code></pre></pre>
+<h2 id="error-response-helpers"><a class="header" href="#error-response-helpers">Error Response Helpers</a></h2>
 <h3 id="bad_requestmessage-impl-intostring"><a class="header" href="#bad_requestmessage-impl-intostring"><code>bad_request(message: impl Into&lt;String&gt;)</code></a></h3>
-<p>Create a 400 Bad Request response.</p>
+<p>400 Bad Request.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>Response::bad_request("Missing required field: email")
-Response::bad_request(format!("Invalid value for field: {}", field))
+<span class="boring">}</span></code></pre></pre>
+<h3 id="unauthorizedmessage-impl-intostring"><a class="header" href="#unauthorizedmessage-impl-intostring"><code>unauthorized(message: impl Into&lt;String&gt;)</code></a></h3>
+<p>401 Unauthorized.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>Response::unauthorized("Invalid or expired token")
+<span class="boring">}</span></code></pre></pre>
+<h3 id="forbiddenmessage-impl-intostring"><a class="header" href="#forbiddenmessage-impl-intostring"><code>forbidden(message: impl Into&lt;String&gt;)</code></a></h3>
+<p>403 Forbidden.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>Response::forbidden("You don't have permission to access this resource")
+<span class="boring">}</span></code></pre></pre>
+<h3 id="not_found--not_found_msgmessage"><a class="header" href="#not_found--not_found_msgmessage"><code>not_found()</code> / <code>not_found_msg(message)</code></a></h3>
+<p>404 Not Found.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>Response::not_found()
+Response::not_found_msg("User with ID 123 not found")
+<span class="boring">}</span></code></pre></pre>
+<h3 id="conflictmessage-impl-intostring"><a class="header" href="#conflictmessage-impl-intostring"><code>conflict(message: impl Into&lt;String&gt;)</code></a></h3>
+<p>409 Conflict.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>Response::conflict("A user with this email already exists")
 <span class="boring">}</span></code></pre></pre>
 <h3 id="internal_errormessage-impl-intostring"><a class="header" href="#internal_errormessage-impl-intostring"><code>internal_error(message: impl Into&lt;String&gt;)</code></a></h3>
-<p>Create a 500 Internal Server Error response.</p>
+<p>500 Internal Server Error.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>Response::internal_error("Database connection failed")
+<span class="boring">}</span></code></pre></pre>
+<h3 id="service_unavailablemessage-impl-intostring"><a class="header" href="#service_unavailablemessage-impl-intostring"><code>service_unavailable(message: impl Into&lt;String&gt;)</code></a></h3>
+<p>503 Service Unavailable.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>Response::service_unavailable("Database is currently unavailable")
 <span class="boring">}</span></code></pre></pre>
 <h2 id="builder-methods"><a class="header" href="#builder-methods">Builder Methods</a></h2>
 <h3 id="with_headerkey-value"><a class="header" href="#with_headerkey-value"><code>with_header(key, value)</code></a></h3>
@@ -931,233 +1225,326 @@ Response::bad_request(format!("Invalid value for field: {}", field))
     .with_header("Content-Type", "text/html")
     .with_body("&lt;html&gt;&lt;body&gt;Hello!&lt;/body&gt;&lt;/html&gt;")
 <span class="boring">}</span></code></pre></pre>
-<h2 id="common-patterns"><a class="header" href="#common-patterns">Common Patterns</a></h2>
-<h3 id="restful-responses"><a class="header" href="#restful-responses">RESTful Responses</a></h3>
+<h3 id="with_corsorigin-impl-intostring"><a class="header" href="#with_corsorigin-impl-intostring"><code>with_cors(origin: impl Into&lt;String&gt;)</code></a></h3>
+<p>Add CORS headers for cross-origin requests.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
-</span>// GET - Return resource
-Response::ok(json!({"id": 1, "name": "Item"}))
+</span>Response::ok(data).with_cors("*")
+Response::ok(data).with_cors("https://myapp.com")
+<span class="boring">}</span></code></pre></pre>
+<h3 id="with_cachemax_age_seconds-u32"><a class="header" href="#with_cachemax_age_seconds-u32"><code>with_cache(max_age_seconds: u32)</code></a></h3>
+<p>Add caching headers.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>Response::ok(data).with_cache(3600)  // Cache for 1 hour
+Response::ok(data).with_cache(0)     // No cache
+<span class="boring">}</span></code></pre></pre>
+<h2 id="common-patterns"><a class="header" href="#common-patterns">Common Patterns</a></h2>
+<h3 id="restful-api"><a class="header" href="#restful-api">RESTful API</a></h3>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>// GET /items - List items
+Response::ok(json!({"items": items}))
 
-// POST - Return created resource
-Response::created(json!({"id": 1, "name": "New Item"}))
+// GET /items/{id} - Get single item
+Response::ok(item)  // or Response::not_found()
 
-// PUT - Return updated resource
-Response::ok(json!({"id": 1, "name": "Updated Item"}))
+// POST /items - Create item
+Response::created(json!({"id": new_id, ...item}))
 
-// DELETE - No content
+// PUT /items/{id} - Update item
+Response::ok(updated_item)
+
+// DELETE /items/{id} - Delete item
 Response::no_content()
 <span class="boring">}</span></code></pre></pre>
-<h3 id="error-handling-pattern"><a class="header" href="#error-handling-pattern">Error Handling Pattern</a></h3>
+<h3 id="error-handling-with-result"><a class="header" href="#error-handling-with-result">Error Handling with Result</a></h3>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
-</span>fn handle(req: Request) -&gt; Response {
-    match process(&amp;req) {
-        Ok(data) =&gt; Response::ok(data),
-        Err(e) =&gt; match e {
-            AppError::NotFound =&gt; Response::not_found(),
-            AppError::Validation(msg) =&gt; Response::bad_request(msg),
-            AppError::Unauthorized =&gt; Response::json(401, json!({"error": "Unauthorized"})),
-            AppError::Internal(msg) =&gt; Response::internal_error(msg),
-        }
-    }
+</span>fn handle(req: Request) -&gt; Result&lt;Response, HandlerError&gt; {
+    let user = find_user(&amp;req)?;  // Returns 404 if not found
+    Ok(Response::ok(user))
+}
+
+handler_loop_result!(handle);  // Errors auto-convert to Response
+<span class="boring">}</span></code></pre></pre>
+<h3 id="file-uploads-response"><a class="header" href="#file-uploads-response">File Uploads Response</a></h3>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>fn handle_upload(req: Request) -&gt; Result&lt;Response, HandlerError&gt; {
+    let multipart = req.multipart()?;
+    let file = multipart.require_file("document")?;
+
+    // Process file...
+    let saved_id = save_to_storage(&amp;file.data)?;
+
+    Ok(Response::created(json!({
+        "id": saved_id,
+        "filename": file.filename,
+        "size": file.data.len(),
+        "content_type": file.content_type
+    })))
+}
+<span class="boring">}</span></code></pre></pre>
+<h3 id="serving-files"><a class="header" href="#serving-files">Serving Files</a></h3>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>fn serve_image(req: Request) -&gt; Result&lt;Response, HandlerError&gt; {
+    let id = req.require_path_param::&lt;String&gt;("id")?;
+    let image_data = load_image(&amp;id)?;
+
+    Ok(Response::binary(200, image_data, "image/png")
+        .with_cache(86400)  // Cache for 1 day
+        .with_header("Content-Disposition", format!("inline; filename=\"{}.png\"", id)))
 }
 <span class="boring">}</span></code></pre></pre>
 <h3 id="custom-content-types"><a class="header" href="#custom-content-types">Custom Content Types</a></h3>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
-</span>// HTML
-Response::new(200)
-    .with_header("Content-Type", "text/html; charset=utf-8")
-    .with_body("&lt;h1&gt;Hello&lt;/h1&gt;")
-
-// XML
+</span>// XML
 Response::new(200)
     .with_header("Content-Type", "application/xml")
     .with_body("&lt;root&gt;&lt;item&gt;Value&lt;/item&gt;&lt;/root&gt;")
 
-// CSV
+// CSV with download
 Response::new(200)
     .with_header("Content-Type", "text/csv")
     .with_header("Content-Disposition", "attachment; filename=\"data.csv\"")
     .with_body("id,name\n1,Alice\n2,Bob")
 <span class="boring">}</span></code></pre></pre>
-<h3 id="redirect"><a class="header" href="#redirect">Redirect</a></h3>
+<h3 id="cors-preflight"><a class="header" href="#cors-preflight">CORS Preflight</a></h3>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
-</span>// Temporary redirect (307)
-Response::new(307)
-    .with_header("Location", "https://example.com/new-path")
+</span>fn handle(req: Request) -&gt; Response {
+    if req.is_method("OPTIONS") {
+        return Response::no_content()
+            .with_cors("*")
+            .with_header("Access-Control-Max-Age", "86400");
+    }
 
-// Permanent redirect (308)
-Response::new(308)
-    .with_header("Location", "https://example.com/permanent-path")
-<span class="boring">}</span></code></pre></pre>
-<h3 id="cors-headers"><a class="header" href="#cors-headers">CORS Headers</a></h3>
-<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span>Response::ok(json!({"data": "value"}))
-    .with_header("Access-Control-Allow-Origin", "*")
-    .with_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-    .with_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
+    // Handle actual request...
+    Response::ok(data).with_cors("*")
+}
+
 <span class="boring">}</span></code></pre></pre>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="error-handling-1"><a class="header" href="#error-handling-1">Error Handling</a></h1>
-<p>The SDK provides a <code>HandlerError</code> enum for structured error handling.</p>
-<h2 id="handlererror"><a class="header" href="#handlererror">HandlerError</a></h2>
+<p>The SDK provides a <code>HandlerError</code> enum for structured error handling with automatic HTTP status code mapping.</p>
+<h2 id="quick-reference-2"><a class="header" href="#quick-reference-2">Quick Reference</a></h2>
+<div class="table-wrapper"><table><thead><tr><th>Variant</th><th>Status</th><th>Use Case</th></tr></thead><tbody>
+<tr><td><code>BadRequest(msg)</code></td><td>400</td><td>Invalid input, malformed JSON</td></tr>
+<tr><td><code>ValidationError(msg)</code></td><td>400</td><td>Semantic validation failures</td></tr>
+<tr><td><code>Unauthorized(msg)</code></td><td>401</td><td>Missing or invalid auth</td></tr>
+<tr><td><code>Forbidden(msg)</code></td><td>403</td><td>Authenticated but not authorized</td></tr>
+<tr><td><code>NotFound</code> / <code>NotFoundMessage(msg)</code></td><td>404</td><td>Resource not found</td></tr>
+<tr><td><code>MethodNotAllowed(msg)</code></td><td>405</td><td>Wrong HTTP method</td></tr>
+<tr><td><code>Conflict(msg)</code></td><td>409</td><td>Resource conflict (duplicate)</td></tr>
+<tr><td><code>PayloadTooLarge(msg)</code></td><td>413</td><td>Request body too large</td></tr>
+<tr><td><code>Internal(msg)</code> / <code>InternalError(msg)</code></td><td>500</td><td>Server error</td></tr>
+<tr><td><code>DatabaseError(msg)</code></td><td>500</td><td>Database operation failed</td></tr>
+<tr><td><code>StorageError(msg)</code></td><td>500</td><td>Storage operation failed</td></tr>
+<tr><td><code>ServiceUnavailable(msg)</code></td><td>503</td><td>Backend service down</td></tr>
+</tbody></table>
+</div>
+<h2 id="handlererror-definition"><a class="header" href="#handlererror-definition">HandlerError Definition</a></h2>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>pub enum HandlerError {
+    // 4xx Client Errors
+    BadRequest(String),
+    ValidationError(String),
+    Unauthorized(String),
+    Forbidden(String),
+    NotFound,
+    NotFoundMessage(String),
+    MethodNotAllowed(String),
+    Conflict(String),
+    PayloadTooLarge(String),
+
+    // 5xx Server Errors
     IpcError(String),
     SerializationError(serde_json::Error),
     DatabaseError(String),
     RedisError(String),
-    ServiceUnavailable(String),
-    ValidationError(String),
-    NotFound(String),
-    Unauthorized(String),
+    StorageError(String),
+    InternalError(String),
     Internal(String),
+    ServiceUnavailable(String),
 }
 <span class="boring">}</span></code></pre></pre>
-<h2 id="error-variants"><a class="header" href="#error-variants">Error Variants</a></h2>
-<div class="table-wrapper"><table><thead><tr><th>Variant</th><th>Status Code</th><th>Use Case</th></tr></thead><tbody>
-<tr><td><code>ValidationError</code></td><td>400</td><td>Invalid input, missing fields</td></tr>
-<tr><td><code>Unauthorized</code></td><td>401</td><td>Missing or invalid authentication</td></tr>
-<tr><td><code>NotFound</code></td><td>404</td><td>Resource not found</td></tr>
-<tr><td><code>ServiceUnavailable</code></td><td>503</td><td>Backend service down</td></tr>
-<tr><td><code>IpcError</code></td><td>500</td><td>Internal IPC communication error</td></tr>
-<tr><td><code>SerializationError</code></td><td>500</td><td>JSON serialization failed</td></tr>
-<tr><td><code>DatabaseError</code></td><td>500</td><td>Database operation failed</td></tr>
-<tr><td><code>RedisError</code></td><td>500</td><td>Redis operation failed</td></tr>
-<tr><td><code>Internal</code></td><td>500</td><td>General internal error</td></tr>
-</tbody></table>
-</div>
+<h2 id="key-features"><a class="header" href="#key-features">Key Features</a></h2>
+<h3 id="automatic-response-conversion"><a class="header" href="#automatic-response-conversion">Automatic Response Conversion</a></h3>
+<p><code>HandlerError</code> implements <code>From&lt;HandlerError&gt; for Response</code>, so you can use <code>.into()</code>:</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>fn handle(req: Request) -&gt; Response {
+    match process(&amp;req) {
+        Ok(data) =&gt; Response::ok(data),
+        Err(e) =&gt; e.into(),  // Automatically converts to Response
+    }
+}
+<span class="boring">}</span></code></pre></pre>
+<h3 id="use-with-handler_loop_result"><a class="header" href="#use-with-handler_loop_result">Use with handler_loop_result!</a></h3>
+<p>The <code>handler_loop_result!</code> macro automatically converts errors to responses:</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>fn handle(req: Request) -&gt; Result&lt;Response, HandlerError&gt; {
+    let data: MyInput = req.json()?;  // BadRequest on parse failure
+    let id: i64 = req.require_path_param("id")?;  // BadRequest if missing
+    let auth = req.require_header("Authorization")?;  // BadRequest if missing
+
+    Ok(Response::ok(json!({"id": id, "data": data})))
+}
+
+handler_loop_result!(handle);  // Errors auto-convert to HTTP responses
+<span class="boring">}</span></code></pre></pre>
 <h2 id="methods-1"><a class="header" href="#methods-1">Methods</a></h2>
-<h3 id="status_code"><a class="header" href="#status_code"><code>status_code()</code></a></h3>
+<h3 id="status_code---u16"><a class="header" href="#status_code---u16"><code>status_code() -&gt; u16</code></a></h3>
 <p>Get the HTTP status code for this error:</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
-</span>let err = HandlerError::NotFound("User not found".to_string());
+</span>let err = HandlerError::NotFound;
 assert_eq!(err.status_code(), 404);
+
+let err = HandlerError::BadRequest("Invalid input".into());
+assert_eq!(err.status_code(), 400);
 <span class="boring">}</span></code></pre></pre>
-<h3 id="to_response"><a class="header" href="#to_response"><code>to_response()</code></a></h3>
+<h3 id="to_response---response"><a class="header" href="#to_response---response"><code>to_response() -&gt; Response</code></a></h3>
 <p>Convert the error to an HTTP Response:</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>let err = HandlerError::ValidationError("Invalid email".to_string());
 let response = err.to_response();
-// Response with status 400 and body: {"error": "Validation error: Invalid email"}
+// Response { status: 400, body: {"error": "Validation error: Invalid email"} }
 <span class="boring">}</span></code></pre></pre>
 <h2 id="usage-patterns"><a class="header" href="#usage-patterns">Usage Patterns</a></h2>
-<h3 id="result-based-handlers"><a class="header" href="#result-based-handlers">Result-Based Handlers</a></h3>
+<h3 id="clean-result-based-handlers"><a class="header" href="#clean-result-based-handlers">Clean Result-Based Handlers</a></h3>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>use rust_edge_gateway_sdk::prelude::*;
 
-fn handle(req: Request) -&gt; Response {
-    match process_request(&amp;req) {
-        Ok(data) =&gt; Response::ok(data),
-        Err(e) =&gt; e.to_response(),
-    }
-}
-
-fn process_request(req: &amp;Request) -&gt; Result&lt;JsonValue, HandlerError&gt; {
-    // Validate input
-    let body: CreateUser = req.json()
-        .map_err(|e| HandlerError::ValidationError(e.to_string()))?;
-    
-    if body.email.is_empty() {
-        return Err(HandlerError::ValidationError("Email is required".into()));
-    }
-    
-    // Check authorization
-    let token = req.header("Authorization")
-        .ok_or_else(|| HandlerError::Unauthorized("Missing token".into()))?;
-    
-    // Simulate lookup
-    if body.email == "notfound@example.com" {
-        return Err(HandlerError::NotFound("User not found".into()));
-    }
-    
-    Ok(json!({"id": "123", "email": body.email}))
-}
-
 #[derive(Deserialize)]
 struct CreateUser {
     email: String,
+    name: String,
 }
 
-handler_loop!(handle);
+fn handle(req: Request) -&gt; Result&lt;Response, HandlerError&gt; {
+    // Parse body - returns BadRequest on failure
+    let body: CreateUser = req.json()?;
+
+    // Validate
+    if body.email.is_empty() {
+        return Err(HandlerError::ValidationError("Email is required".into()));
+    }
+
+    // Check authentication
+    let token = req.require_header("Authorization")?;
+
+    // Get typed path parameter
+    let user_id: i64 = req.require_path_param("id")?;
+
+    // Simulate database operation
+    let user = find_user(user_id)
+        .ok_or(HandlerError::NotFound)?;
+
+    Ok(Response::ok(user))
+}
+
+handler_loop_result!(handle);
+<span class="boring">}</span></code></pre></pre>
+<h3 id="converting-external-errors"><a class="header" href="#converting-external-errors">Converting External Errors</a></h3>
+<p>Map external library errors to <code>HandlerError</code>:</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>fn save_to_database(data: &amp;MyData) -&gt; Result&lt;i64, HandlerError&gt; {
+    let conn = get_connection()
+        .map_err(|e| HandlerError::DatabaseError(e.to_string()))?;
+
+    let id = conn.insert(data)
+        .map_err(|e| HandlerError::DatabaseError(e.to_string()))?;
+
+    Ok(id)
+}
 <span class="boring">}</span></code></pre></pre>
 <h3 id="custom-error-types"><a class="header" href="#custom-error-types">Custom Error Types</a></h3>
-<p>You can define your own error types and convert to <code>HandlerError</code>:</p>
+<p>Define domain-specific errors and convert to <code>HandlerError</code>:</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>enum AppError {
     UserNotFound(String),
-    InvalidEmail,
-    DatabaseDown,
+    DuplicateEmail,
+    InvalidCredentials,
     RateLimited,
 }
 
 impl From&lt;AppError&gt; for HandlerError {
     fn from(e: AppError) -&gt; Self {
         match e {
-            AppError::UserNotFound(id) =&gt; 
-                HandlerError::NotFound(format!("User {} not found", id)),
-            AppError::InvalidEmail =&gt; 
-                HandlerError::ValidationError("Invalid email format".into()),
-            AppError::DatabaseDown =&gt; 
-                HandlerError::ServiceUnavailable("Database unavailable".into()),
-            AppError::RateLimited =&gt; 
-                HandlerError::Internal("Rate limit exceeded".into()),
+            AppError::UserNotFound(id) =&gt;
+                HandlerError::NotFoundMessage(format!("User {} not found", id)),
+            AppError::DuplicateEmail =&gt;
+                HandlerError::Conflict("Email already registered".into()),
+            AppError::InvalidCredentials =&gt;
+                HandlerError::Unauthorized("Invalid email or password".into()),
+            AppError::RateLimited =&gt;
+                HandlerError::ServiceUnavailable("Rate limit exceeded, try again later".into()),
         }
     }
 }
 
-fn process(req: &amp;Request) -&gt; Result&lt;JsonValue, AppError&gt; {
-    // Your logic returning AppError variants
-    Err(AppError::InvalidEmail)
-}
-
-fn handle(req: Request) -&gt; Response {
-    match process(&amp;req) {
-        Ok(data) =&gt; Response::ok(data),
-        Err(e) =&gt; HandlerError::from(e).to_response(),
-    }
+fn handle(req: Request) -&gt; Result&lt;Response, HandlerError&gt; {
+    let result = business_logic(&amp;req)
+        .map_err(HandlerError::from)?;  // Convert AppError to HandlerError
+    Ok(Response::ok(result))
 }
 <span class="boring">}</span></code></pre></pre>
-<h3 id="early-returns-with-"><a class="header" href="#early-returns-with-">Early Returns with ?</a></h3>
-<p>Use the <code>?</code> operator for clean error propagation:</p>
+<h3 id="async-error-handling"><a class="header" href="#async-error-handling">Async Error Handling</a></h3>
+<p>Works the same with async handlers:</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
-</span>fn process_request(req: &amp;Request) -&gt; Result&lt;JsonValue, HandlerError&gt; {
-    // Each ? will return early if Err
-    let input: InputData = req.json()
-        .map_err(|e| HandlerError::ValidationError(e.to_string()))?;
-    
-    let user = find_user(&amp;input.user_id)
-        .ok_or_else(|| HandlerError::NotFound("User not found".into()))?;
-    
-    let result = update_user(&amp;user)
+</span>async fn handle(req: Request) -&gt; Result&lt;Response, HandlerError&gt; {
+    let data: CreateItem = req.json()?;
+
+    let id = database.insert(&amp;data).await
         .map_err(|e| HandlerError::DatabaseError(e.to_string()))?;
-    
-    Ok(json!({"updated": true, "user": result}))
+
+    let uploaded = s3.put_object(&amp;data.file).await
+        .map_err(|e| HandlerError::StorageError(e.to_string()))?;
+
+    Ok(Response::created(json!({
+        "id": id,
+        "file_url": uploaded.url
+    })))
 }
+
+handler_loop_async_result!(handle);
 <span class="boring">}</span></code></pre></pre>
 <h3 id="logging-errors"><a class="header" href="#logging-errors">Logging Errors</a></h3>
-<p>Always log errors for debugging:</p>
+<p>Always log errors for debugging (logs go to stderr, captured by gateway):</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
-</span>fn handle(req: Request) -&gt; Response {
+</span>fn handle(req: Request) -&gt; Result&lt;Response, HandlerError&gt; {
     match process(&amp;req) {
-        Ok(data) =&gt; Response::ok(data),
+        Ok(data) =&gt; Ok(Response::ok(data)),
         Err(e) =&gt; {
-            // Log to stderr (captured by gateway)
-            eprintln!("[{}] Error: {}", req.request_id, e);
-            e.to_response()
+            eprintln!("[{}] Error: {} ({})",
+                req.request_id,
+                e,
+                e.status_code()
+            );
+            Err(e)  // Will be converted to Response by handler_loop_result!
         }
     }
 }
 <span class="boring">}</span></code></pre></pre>
+<h2 id="best-practices"><a class="header" href="#best-practices">Best Practices</a></h2>
+<ol>
+<li><strong>Use <code>handler_loop_result!</code></strong> - Simplifies error handling with automatic conversion</li>
+<li><strong>Use specific error variants</strong> - <code>BadRequest</code> vs <code>ValidationError</code> vs <code>Unauthorized</code></li>
+<li><strong>Always log errors</strong> - Use <code>eprintln!</code> for debugging</li>
+<li><strong>Convert early</strong> - Map external errors to <code>HandlerError</code> at the boundary</li>
+<li><strong>Include context</strong> - Error messages should help debugging</li>
+</ol>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="services"><a class="header" href="#services">Services</a></h1>
 <p>Rust Edge Gateway can connect your handlers to backend services like databases, Redis, and object storage.</p>
 <h2 id="overview"><a class="header" href="#overview">Overview</a></h2>
@@ -1399,7 +1786,7 @@ storage.update("item-001", &amp;updated)?;
 <li>Filter parameter filters file listing</li>
 <li>Directory must exist on server</li>
 </ul>
-<h2 id="complete-example"><a class="header" href="#complete-example">Complete Example</a></h2>
+<h2 id="complete-example-1"><a class="header" href="#complete-example-1">Complete Example</a></h2>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>use rust_edge_gateway_sdk::prelude::*;
@@ -1603,7 +1990,7 @@ fn get_user(db: &amp;DbPool, id: &amp;str) -&gt; Result&lt;Option&lt;User&gt;, H
     }
 }
 <span class="boring">}</span></code></pre></pre>
-<h2 id="best-practices"><a class="header" href="#best-practices">Best Practices</a></h2>
+<h2 id="best-practices-1"><a class="header" href="#best-practices-1">Best Practices</a></h2>
 <ol>
 <li><strong>Always use parameterized queries</strong> - Never concatenate user input into SQL</li>
 <li><strong>Handle connection errors gracefully</strong> - Services may be temporarily unavailable</li>
@@ -1793,7 +2180,7 @@ fn handle(req: Request) -&gt; Response {
     Err(e) =&gt; { /* other error */ }
 }
 <span class="boring">}</span></code></pre></pre>
-<h2 id="best-practices-1"><a class="header" href="#best-practices-1">Best Practices</a></h2>
+<h2 id="best-practices-2"><a class="header" href="#best-practices-2">Best Practices</a></h2>
 <ol>
 <li><strong>Use meaningful key prefixes</strong> - <code>user:123</code>, <code>session:abc</code>, <code>cache:posts:1</code></li>
 <li><strong>Always set expiration for cache keys</strong> - Prevents unbounded memory growth</li>
@@ -2069,7 +2456,7 @@ fn handle(req: Request) -&gt; Response {
 <tr><td>Amazon SES</td><td>email-smtp.{region}.amazonaws.com</td><td>587</td><td>starttls</td></tr>
 </tbody></table>
 </div>
-<h2 id="best-practices-2"><a class="header" href="#best-practices-2">Best Practices</a></h2>
+<h2 id="best-practices-3"><a class="header" href="#best-practices-3">Best Practices</a></h2>
 <ol>
 <li><strong>Use app passwords</strong> - Don't use your main account password</li>
 <li><strong>Set up SPF/DKIM</strong> - Improve deliverability</li>
@@ -2294,7 +2681,7 @@ fn handle(req: Request) -&gt; Response {
     Response::no_content()
 }
 <span class="boring">}</span></code></pre></pre>
-<div style="break-before: page; page-break-before: always;"></div><h1 id="path-parameters-1"><a class="header" href="#path-parameters-1">Path Parameters</a></h1>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="path-parameters-2"><a class="header" href="#path-parameters-2">Path Parameters</a></h1>
 <p>Extract dynamic values from URL paths.</p>
 <h2 id="basic-example"><a class="header" href="#basic-example">Basic Example</a></h2>
 <p><strong>Endpoint Path:</strong> <code>/users/{id}</code></p>
@@ -2443,7 +2830,7 @@ fn get_blog_post(req: Request) -&gt; Response {
     }))
 }
 <span class="boring">}</span></code></pre></pre>
-<div style="break-before: page; page-break-before: always;"></div><h1 id="query-parameters-1"><a class="header" href="#query-parameters-1">Query Parameters</a></h1>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="query-parameters-2"><a class="header" href="#query-parameters-2">Query Parameters</a></h1>
 <p>Access URL query string values.</p>
 <h2 id="basic-example-1"><a class="header" href="#basic-example-1">Basic Example</a></h2>
 <p><strong>Endpoint Path:</strong> <code>/search</code></p>

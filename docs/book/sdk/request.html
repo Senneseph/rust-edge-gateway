@@ -209,9 +209,10 @@
 <tr><td><code>request_id</code></td><td><code>String</code></td><td>Unique identifier for request tracing</td></tr>
 </tbody></table>
 </div>
-<h2 id="methods"><a class="header" href="#methods">Methods</a></h2>
-<h3 id="jsont"><a class="header" href="#jsont"><code>json&lt;T&gt;()</code></a></h3>
-<p>Parse the body as JSON into a typed struct.</p>
+<h2 id="methods-reference"><a class="header" href="#methods-reference">Methods Reference</a></h2>
+<h3 id="json-parsing"><a class="header" href="#json-parsing">JSON Parsing</a></h3>
+<h4 id="jsont---resultt-handlererror"><a class="header" href="#jsont---resultt-handlererror"><code>json&lt;T&gt;() -&gt; Result&lt;T, HandlerError&gt;</code></a></h4>
+<p>Parse the body as JSON into a typed struct. Returns <code>HandlerError::BadRequest</code> on parse failure.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>#[derive(Deserialize)]
@@ -220,81 +221,175 @@ struct CreateUser {
     email: String,
 }
 
-fn handle(req: Request) -&gt; Response {
-    match req.json::&lt;CreateUser&gt;() {
-        Ok(user) =&gt; Response::ok(json!({"name": user.name})),
-        Err(e) =&gt; Response::bad_request(format!("Invalid JSON: {}", e)),
-    }
+fn handle(req: Request) -&gt; Result&lt;Response, HandlerError&gt; {
+    let user: CreateUser = req.json()?;  // Uses ? operator naturally
+    Ok(Response::ok(json!({"name": user.name})))
 }
+
+handler_loop_result!(handle);
 <span class="boring">}</span></code></pre></pre>
-<h3 id="query_paramkey-str"><a class="header" href="#query_paramkey-str"><code>query_param(key: &amp;str)</code></a></h3>
-<p>Get a query parameter by name.</p>
+<h3 id="query-parameters"><a class="header" href="#query-parameters">Query Parameters</a></h3>
+<h4 id="query_paramkey-str---optionstring"><a class="header" href="#query_paramkey-str---optionstring"><code>query_param(key: &amp;str) -&gt; Option&lt;&amp;String&gt;</code></a></h4>
+<p>Get a query parameter as a string reference.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
-</span>fn handle(req: Request) -&gt; Response {
-    // URL: /search?q=rust&amp;page=2
-    let query = req.query_param("q").unwrap_or(&amp;"".to_string());
-    let page = req.query_param("page")
-        .and_then(|p| p.parse::&lt;u32&gt;().ok())
-        .unwrap_or(1);
-    
-    Response::ok(json!({
-        "query": query,
-        "page": page,
-    }))
+</span>// URL: /search?q=rust
+let query = req.query_param("q"); // Some(&amp;"rust".to_string())
+<span class="boring">}</span></code></pre></pre>
+<h4 id="query_param_ast-fromstrkey-str---optiont"><a class="header" href="#query_param_ast-fromstrkey-str---optiont"><code>query_param_as&lt;T: FromStr&gt;(key: &amp;str) -&gt; Option&lt;T&gt;</code></a></h4>
+<p>Get a query parameter parsed as a specific type. Returns <code>None</code> if missing or can't be parsed.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>// URL: /items?page=2&amp;limit=10
+let page: i64 = req.query_param_as("page").unwrap_or(1);
+let limit: usize = req.query_param_as("limit").unwrap_or(20);
+let active: bool = req.query_param_as("active").unwrap_or(false);
+<span class="boring">}</span></code></pre></pre>
+<h4 id="require_query_paramt-fromstrkey-str---resultt-handlererror"><a class="header" href="#require_query_paramt-fromstrkey-str---resultt-handlererror"><code>require_query_param&lt;T: FromStr&gt;(key: &amp;str) -&gt; Result&lt;T, HandlerError&gt;</code></a></h4>
+<p>Get a required query parameter. Returns <code>HandlerError::BadRequest</code> if missing or invalid.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>fn handle(req: Request) -&gt; Result&lt;Response, HandlerError&gt; {
+    let page: i64 = req.require_query_param("page")?;
+    let limit: usize = req.require_query_param("limit")?;
+    Ok(Response::ok(json!({"page": page, "limit": limit})))
 }
 <span class="boring">}</span></code></pre></pre>
-<h3 id="path_paramkey-str"><a class="header" href="#path_paramkey-str"><code>path_param(key: &amp;str)</code></a></h3>
+<h3 id="path-parameters"><a class="header" href="#path-parameters">Path Parameters</a></h3>
+<h4 id="path_paramkey-str---optionstring"><a class="header" href="#path_paramkey-str---optionstring"><code>path_param(key: &amp;str) -&gt; Option&lt;&amp;String&gt;</code></a></h4>
 <p>Get a path parameter extracted from the route pattern.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>// Endpoint path: /users/{id}/posts/{post_id}
 // Request: /users/123/posts/456
 
-fn handle(req: Request) -&gt; Response {
-    let user_id = req.path_param("id");       // Some("123")
-    let post_id = req.path_param("post_id");  // Some("456")
-    
-    Response::ok(json!({
-        "user_id": user_id,
-        "post_id": post_id,
-    }))
+let user_id = req.path_param("id");       // Some(&amp;"123".to_string())
+let post_id = req.path_param("post_id");  // Some(&amp;"456".to_string())
+<span class="boring">}</span></code></pre></pre>
+<h4 id="path_param_ast-fromstrkey-str---optiont"><a class="header" href="#path_param_ast-fromstrkey-str---optiont"><code>path_param_as&lt;T: FromStr&gt;(key: &amp;str) -&gt; Option&lt;T&gt;</code></a></h4>
+<p>Get a path parameter parsed as a specific type.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>// Route: /users/{id}
+let user_id: i64 = req.path_param_as("id").unwrap_or(0);
+let uuid: Uuid = req.path_param_as("id").ok_or(HandlerError::BadRequest("Invalid UUID".into()))?;
+<span class="boring">}</span></code></pre></pre>
+<h4 id="require_path_paramt-fromstrkey-str---resultt-handlererror"><a class="header" href="#require_path_paramt-fromstrkey-str---resultt-handlererror"><code>require_path_param&lt;T: FromStr&gt;(key: &amp;str) -&gt; Result&lt;T, HandlerError&gt;</code></a></h4>
+<p>Get a required path parameter. Returns <code>HandlerError::BadRequest</code> if missing or invalid.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>fn handle(req: Request) -&gt; Result&lt;Response, HandlerError&gt; {
+    let user_id: i64 = req.require_path_param("id")?;
+    Ok(Response::ok(json!({"user_id": user_id})))
 }
 <span class="boring">}</span></code></pre></pre>
-<h3 id="headerkey-str"><a class="header" href="#headerkey-str"><code>header(key: &amp;str)</code></a></h3>
+<h3 id="headers"><a class="header" href="#headers">Headers</a></h3>
+<h4 id="headerkey-str---optionstring"><a class="header" href="#headerkey-str---optionstring"><code>header(key: &amp;str) -&gt; Option&lt;&amp;String&gt;</code></a></h4>
 <p>Get a header value (case-insensitive lookup).</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
-</span>fn handle(req: Request) -&gt; Response {
-    // These all work:
-    let auth = req.header("Authorization");
-    let auth = req.header("authorization");
-    let auth = req.header("AUTHORIZATION");
-    
-    let content_type = req.header("Content-Type");
-    let user_agent = req.header("User-Agent");
-    
-    Response::ok(json!({
-        "has_auth": auth.is_some(),
-    }))
+</span>// All of these work:
+let auth = req.header("Authorization");
+let auth = req.header("authorization");
+let auth = req.header("AUTHORIZATION");
+<span class="boring">}</span></code></pre></pre>
+<h4 id="require_headerkey-str---resultstring-handlererror"><a class="header" href="#require_headerkey-str---resultstring-handlererror"><code>require_header(key: &amp;str) -&gt; Result&lt;&amp;String, HandlerError&gt;</code></a></h4>
+<p>Get a required header. Returns <code>HandlerError::BadRequest</code> if missing.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>fn handle(req: Request) -&gt; Result&lt;Response, HandlerError&gt; {
+    let auth = req.require_header("Authorization")?;
+    let api_key = req.require_header("X-API-Key")?;
+    Ok(Response::ok(json!({"authenticated": true})))
 }
 <span class="boring">}</span></code></pre></pre>
-<h3 id="is_methodmethod-str"><a class="header" href="#is_methodmethod-str"><code>is_method(method: &amp;str)</code></a></h3>
+<h3 id="request-inspection"><a class="header" href="#request-inspection">Request Inspection</a></h3>
+<h4 id="is_methodmethod-str---bool"><a class="header" href="#is_methodmethod-str---bool"><code>is_method(method: &amp;str) -&gt; bool</code></a></h4>
 <p>Check if the request method matches (case-insensitive).</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
-</span>fn handle(req: Request) -&gt; Response {
-    if req.is_method("GET") {
-        return get_resource(&amp;req);
-    } else if req.is_method("POST") {
-        return create_resource(&amp;req);
-    }
-    
-    Response::json(405, json!({"error": "Method not allowed"}))
+</span>if req.is_method("POST") {
+    // Handle POST
 }
 <span class="boring">}</span></code></pre></pre>
-<h2 id="examples"><a class="header" href="#examples">Examples</a></h2>
-<h3 id="complete-request-handler"><a class="header" href="#complete-request-handler">Complete Request Handler</a></h3>
+<h4 id="content_type---optionstring"><a class="header" href="#content_type---optionstring"><code>content_type() -&gt; Option&lt;&amp;String&gt;</code></a></h4>
+<p>Get the Content-Type header value.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>if let Some(ct) = req.content_type() {
+    eprintln!("Content-Type: {}", ct);
+}
+<span class="boring">}</span></code></pre></pre>
+<h4 id="is_json---bool"><a class="header" href="#is_json---bool"><code>is_json() -&gt; bool</code></a></h4>
+<p>Check if the request has a JSON content type.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>if req.is_json() {
+    let data: MyStruct = req.json()?;
+}
+<span class="boring">}</span></code></pre></pre>
+<h4 id="is_multipart---bool"><a class="header" href="#is_multipart---bool"><code>is_multipart() -&gt; bool</code></a></h4>
+<p>Check if the request has a multipart/form-data content type.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>if req.is_multipart() {
+    let multipart = req.multipart()?;
+}
+<span class="boring">}</span></code></pre></pre>
+<h4 id="body_bytes---vecu8"><a class="header" href="#body_bytes---vecu8"><code>body_bytes() -&gt; Vec&lt;u8&gt;</code></a></h4>
+<p>Get the raw body as bytes.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>let raw_body = req.body_bytes();
+<span class="boring">}</span></code></pre></pre>
+<h3 id="multipart-form-data"><a class="header" href="#multipart-form-data">Multipart Form Data</a></h3>
+<h4 id="multipart---resultmultipartdata-handlererror"><a class="header" href="#multipart---resultmultipartdata-handlererror"><code>multipart() -&gt; Result&lt;MultipartData, HandlerError&gt;</code></a></h4>
+<p>Parse multipart/form-data body for file uploads.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>fn handle(req: Request) -&gt; Result&lt;Response, HandlerError&gt; {
+    let multipart = req.multipart()?;
+
+    // Get text fields
+    let title = multipart.require_field("title")?;
+    let description = multipart.field("description").unwrap_or(&amp;"".to_string());
+
+    // Get uploaded file
+    let file = multipart.require_file("upload")?;
+    eprintln!("Received file: {} ({} bytes)", file.filename, file.data.len());
+
+    Ok(Response::ok(json!({
+        "title": title,
+        "filename": file.filename,
+        "size": file.data.len()
+    })))
+}
+<span class="boring">}</span></code></pre></pre>
+<h2 id="multipartdata"><a class="header" href="#multipartdata">MultipartData</a></h2>
+<h3 id="fields-1"><a class="header" href="#fields-1">Fields</a></h3>
+<div class="table-wrapper"><table><thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>fields</code></td><td><code>HashMap&lt;String, String&gt;</code></td><td>Text form fields</td></tr>
+<tr><td><code>files</code></td><td><code>HashMap&lt;String, MultipartFile&gt;</code></td><td>Uploaded files</td></tr>
+</tbody></table>
+</div>
+<h3 id="methods"><a class="header" href="#methods">Methods</a></h3>
+<div class="table-wrapper"><table><thead><tr><th>Method</th><th>Returns</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>field(name)</code></td><td><code>Option&lt;&amp;String&gt;</code></td><td>Get a text field</td></tr>
+<tr><td><code>require_field(name)</code></td><td><code>Result&lt;&amp;String, HandlerError&gt;</code></td><td>Get required text field</td></tr>
+<tr><td><code>file(name)</code></td><td><code>Option&lt;&amp;MultipartFile&gt;</code></td><td>Get an uploaded file</td></tr>
+<tr><td><code>require_file(name)</code></td><td><code>Result&lt;&amp;MultipartFile, HandlerError&gt;</code></td><td>Get required file</td></tr>
+</tbody></table>
+</div>
+<h2 id="multipartfile"><a class="header" href="#multipartfile">MultipartFile</a></h2>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub struct MultipartFile {
+    pub filename: String,      // Original filename
+    pub content_type: String,  // MIME type
+    pub data: Vec&lt;u8&gt;,         // File content
+}
+<span class="boring">}</span></code></pre></pre>
+<h2 id="complete-example"><a class="header" href="#complete-example">Complete Example</a></h2>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>use rust_edge_gateway_sdk::prelude::*;
@@ -305,48 +400,35 @@ struct UpdateProfile {
     bio: Option&lt;String&gt;,
 }
 
-fn handle(req: Request) -&gt; Response {
+fn handle(req: Request) -&gt; Result&lt;Response, HandlerError&gt; {
     // Log request info
-    eprintln!("[{}] {} {} from {:?}", 
-        req.request_id, 
-        req.method, 
-        req.path,
-        req.client_ip
-    );
-    
+    eprintln!("[{}] {} {} from {:?}",
+        req.request_id, req.method, req.path, req.client_ip);
+
     // Check authentication
-    let token = match req.header("Authorization") {
-        Some(t) =&gt; t,
-        None =&gt; return Response::json(401, json!({"error": "Unauthorized"})),
-    };
-    
-    // Get path parameter
-    let user_id = match req.path_param("id") {
-        Some(id) =&gt; id.clone(),
-        None =&gt; return Response::bad_request("Missing user ID"),
-    };
-    
+    let token = req.require_header("Authorization")?;
+
+    // Get path parameter (typed)
+    let user_id: i64 = req.require_path_param("id")?;
+
     // Parse body
-    let update: UpdateProfile = match req.json() {
-        Ok(u) =&gt; u,
-        Err(e) =&gt; return Response::bad_request(format!("Invalid JSON: {}", e)),
-    };
-    
+    let update: UpdateProfile = req.json()?;
+
     // Process request...
-    Response::ok(json!({
+    Ok(Response::ok(json!({
         "user_id": user_id,
         "updated": true,
-    }))
+    })))
 }
 
-handler_loop!(handle);
+handler_loop_result!(handle);
 <span class="boring">}</span></code></pre></pre>
 
                     </main>
 
                     <nav class="nav-wrapper" aria-label="Page navigation">
                         <!-- Mobile navigation buttons -->
-                            <a rel="prev" href="../getting-started/lifecycle.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                            <a rel="prev" href="../sdk/handlers.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                                 <i class="fa fa-angle-left"></i>
                             </a>
 
@@ -360,7 +442,7 @@ handler_loop!(handle);
             </div>
 
             <nav class="nav-wide-wrapper" aria-label="Page navigation">
-                    <a rel="prev" href="../getting-started/lifecycle.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                    <a rel="prev" href="../sdk/handlers.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                         <i class="fa fa-angle-left"></i>
                     </a>
 

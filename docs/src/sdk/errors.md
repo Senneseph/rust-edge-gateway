@@ -1,175 +1,242 @@
 # Error Handling
 
-The SDK provides a `HandlerError` enum for structured error handling.
+The SDK provides a `HandlerError` enum for structured error handling with automatic HTTP status code mapping.
 
-## HandlerError
+## Quick Reference
+
+| Variant | Status | Use Case |
+|---------|--------|----------|
+| `BadRequest(msg)` | 400 | Invalid input, malformed JSON |
+| `ValidationError(msg)` | 400 | Semantic validation failures |
+| `Unauthorized(msg)` | 401 | Missing or invalid auth |
+| `Forbidden(msg)` | 403 | Authenticated but not authorized |
+| `NotFound` / `NotFoundMessage(msg)` | 404 | Resource not found |
+| `MethodNotAllowed(msg)` | 405 | Wrong HTTP method |
+| `Conflict(msg)` | 409 | Resource conflict (duplicate) |
+| `PayloadTooLarge(msg)` | 413 | Request body too large |
+| `Internal(msg)` / `InternalError(msg)` | 500 | Server error |
+| `DatabaseError(msg)` | 500 | Database operation failed |
+| `StorageError(msg)` | 500 | Storage operation failed |
+| `ServiceUnavailable(msg)` | 503 | Backend service down |
+
+## HandlerError Definition
 
 ```rust
 pub enum HandlerError {
+    // 4xx Client Errors
+    BadRequest(String),
+    ValidationError(String),
+    Unauthorized(String),
+    Forbidden(String),
+    NotFound,
+    NotFoundMessage(String),
+    MethodNotAllowed(String),
+    Conflict(String),
+    PayloadTooLarge(String),
+
+    // 5xx Server Errors
     IpcError(String),
     SerializationError(serde_json::Error),
     DatabaseError(String),
     RedisError(String),
-    ServiceUnavailable(String),
-    ValidationError(String),
-    NotFound(String),
-    Unauthorized(String),
+    StorageError(String),
+    InternalError(String),
     Internal(String),
+    ServiceUnavailable(String),
 }
 ```
 
-## Error Variants
+## Key Features
 
-| Variant | Status Code | Use Case |
-|---------|-------------|----------|
-| `ValidationError` | 400 | Invalid input, missing fields |
-| `Unauthorized` | 401 | Missing or invalid authentication |
-| `NotFound` | 404 | Resource not found |
-| `ServiceUnavailable` | 503 | Backend service down |
-| `IpcError` | 500 | Internal IPC communication error |
-| `SerializationError` | 500 | JSON serialization failed |
-| `DatabaseError` | 500 | Database operation failed |
-| `RedisError` | 500 | Redis operation failed |
-| `Internal` | 500 | General internal error |
+### Automatic Response Conversion
+
+`HandlerError` implements `From<HandlerError> for Response`, so you can use `.into()`:
+
+```rust
+fn handle(req: Request) -> Response {
+    match process(&req) {
+        Ok(data) => Response::ok(data),
+        Err(e) => e.into(),  // Automatically converts to Response
+    }
+}
+```
+
+### Use with handler_loop_result!
+
+The `handler_loop_result!` macro automatically converts errors to responses:
+
+```rust
+fn handle(req: Request) -> Result<Response, HandlerError> {
+    let data: MyInput = req.json()?;  // BadRequest on parse failure
+    let id: i64 = req.require_path_param("id")?;  // BadRequest if missing
+    let auth = req.require_header("Authorization")?;  // BadRequest if missing
+
+    Ok(Response::ok(json!({"id": id, "data": data})))
+}
+
+handler_loop_result!(handle);  // Errors auto-convert to HTTP responses
+```
 
 ## Methods
 
-### `status_code()`
+### `status_code() -> u16`
 
 Get the HTTP status code for this error:
 
 ```rust
-let err = HandlerError::NotFound("User not found".to_string());
+let err = HandlerError::NotFound;
 assert_eq!(err.status_code(), 404);
+
+let err = HandlerError::BadRequest("Invalid input".into());
+assert_eq!(err.status_code(), 400);
 ```
 
-### `to_response()`
+### `to_response() -> Response`
 
 Convert the error to an HTTP Response:
 
 ```rust
 let err = HandlerError::ValidationError("Invalid email".to_string());
 let response = err.to_response();
-// Response with status 400 and body: {"error": "Validation error: Invalid email"}
+// Response { status: 400, body: {"error": "Validation error: Invalid email"} }
 ```
 
 ## Usage Patterns
 
-### Result-Based Handlers
+### Clean Result-Based Handlers
 
 ```rust
 use rust_edge_gateway_sdk::prelude::*;
 
-fn handle(req: Request) -> Response {
-    match process_request(&req) {
-        Ok(data) => Response::ok(data),
-        Err(e) => e.to_response(),
-    }
-}
-
-fn process_request(req: &Request) -> Result<JsonValue, HandlerError> {
-    // Validate input
-    let body: CreateUser = req.json()
-        .map_err(|e| HandlerError::ValidationError(e.to_string()))?;
-    
-    if body.email.is_empty() {
-        return Err(HandlerError::ValidationError("Email is required".into()));
-    }
-    
-    // Check authorization
-    let token = req.header("Authorization")
-        .ok_or_else(|| HandlerError::Unauthorized("Missing token".into()))?;
-    
-    // Simulate lookup
-    if body.email == "notfound@example.com" {
-        return Err(HandlerError::NotFound("User not found".into()));
-    }
-    
-    Ok(json!({"id": "123", "email": body.email}))
-}
-
 #[derive(Deserialize)]
 struct CreateUser {
     email: String,
+    name: String,
 }
 
-handler_loop!(handle);
+fn handle(req: Request) -> Result<Response, HandlerError> {
+    // Parse body - returns BadRequest on failure
+    let body: CreateUser = req.json()?;
+
+    // Validate
+    if body.email.is_empty() {
+        return Err(HandlerError::ValidationError("Email is required".into()));
+    }
+
+    // Check authentication
+    let token = req.require_header("Authorization")?;
+
+    // Get typed path parameter
+    let user_id: i64 = req.require_path_param("id")?;
+
+    // Simulate database operation
+    let user = find_user(user_id)
+        .ok_or(HandlerError::NotFound)?;
+
+    Ok(Response::ok(user))
+}
+
+handler_loop_result!(handle);
+```
+
+### Converting External Errors
+
+Map external library errors to `HandlerError`:
+
+```rust
+fn save_to_database(data: &MyData) -> Result<i64, HandlerError> {
+    let conn = get_connection()
+        .map_err(|e| HandlerError::DatabaseError(e.to_string()))?;
+
+    let id = conn.insert(data)
+        .map_err(|e| HandlerError::DatabaseError(e.to_string()))?;
+
+    Ok(id)
+}
 ```
 
 ### Custom Error Types
 
-You can define your own error types and convert to `HandlerError`:
+Define domain-specific errors and convert to `HandlerError`:
 
 ```rust
 enum AppError {
     UserNotFound(String),
-    InvalidEmail,
-    DatabaseDown,
+    DuplicateEmail,
+    InvalidCredentials,
     RateLimited,
 }
 
 impl From<AppError> for HandlerError {
     fn from(e: AppError) -> Self {
         match e {
-            AppError::UserNotFound(id) => 
-                HandlerError::NotFound(format!("User {} not found", id)),
-            AppError::InvalidEmail => 
-                HandlerError::ValidationError("Invalid email format".into()),
-            AppError::DatabaseDown => 
-                HandlerError::ServiceUnavailable("Database unavailable".into()),
-            AppError::RateLimited => 
-                HandlerError::Internal("Rate limit exceeded".into()),
+            AppError::UserNotFound(id) =>
+                HandlerError::NotFoundMessage(format!("User {} not found", id)),
+            AppError::DuplicateEmail =>
+                HandlerError::Conflict("Email already registered".into()),
+            AppError::InvalidCredentials =>
+                HandlerError::Unauthorized("Invalid email or password".into()),
+            AppError::RateLimited =>
+                HandlerError::ServiceUnavailable("Rate limit exceeded, try again later".into()),
         }
     }
 }
 
-fn process(req: &Request) -> Result<JsonValue, AppError> {
-    // Your logic returning AppError variants
-    Err(AppError::InvalidEmail)
-}
-
-fn handle(req: Request) -> Response {
-    match process(&req) {
-        Ok(data) => Response::ok(data),
-        Err(e) => HandlerError::from(e).to_response(),
-    }
+fn handle(req: Request) -> Result<Response, HandlerError> {
+    let result = business_logic(&req)
+        .map_err(HandlerError::from)?;  // Convert AppError to HandlerError
+    Ok(Response::ok(result))
 }
 ```
 
-### Early Returns with ?
+### Async Error Handling
 
-Use the `?` operator for clean error propagation:
+Works the same with async handlers:
 
 ```rust
-fn process_request(req: &Request) -> Result<JsonValue, HandlerError> {
-    // Each ? will return early if Err
-    let input: InputData = req.json()
-        .map_err(|e| HandlerError::ValidationError(e.to_string()))?;
-    
-    let user = find_user(&input.user_id)
-        .ok_or_else(|| HandlerError::NotFound("User not found".into()))?;
-    
-    let result = update_user(&user)
+async fn handle(req: Request) -> Result<Response, HandlerError> {
+    let data: CreateItem = req.json()?;
+
+    let id = database.insert(&data).await
         .map_err(|e| HandlerError::DatabaseError(e.to_string()))?;
-    
-    Ok(json!({"updated": true, "user": result}))
+
+    let uploaded = s3.put_object(&data.file).await
+        .map_err(|e| HandlerError::StorageError(e.to_string()))?;
+
+    Ok(Response::created(json!({
+        "id": id,
+        "file_url": uploaded.url
+    })))
 }
+
+handler_loop_async_result!(handle);
 ```
 
 ### Logging Errors
 
-Always log errors for debugging:
+Always log errors for debugging (logs go to stderr, captured by gateway):
 
 ```rust
-fn handle(req: Request) -> Response {
+fn handle(req: Request) -> Result<Response, HandlerError> {
     match process(&req) {
-        Ok(data) => Response::ok(data),
+        Ok(data) => Ok(Response::ok(data)),
         Err(e) => {
-            // Log to stderr (captured by gateway)
-            eprintln!("[{}] Error: {}", req.request_id, e);
-            e.to_response()
+            eprintln!("[{}] Error: {} ({})",
+                req.request_id,
+                e,
+                e.status_code()
+            );
+            Err(e)  // Will be converted to Response by handler_loop_result!
         }
     }
 }
 ```
+
+## Best Practices
+
+1. **Use `handler_loop_result!`** - Simplifies error handling with automatic conversion
+2. **Use specific error variants** - `BadRequest` vs `ValidationError` vs `Unauthorized`
+3. **Always log errors** - Use `eprintln!` for debugging
+4. **Convert early** - Map external errors to `HandlerError` at the boundary
+5. **Include context** - Error messages should help debugging
 
