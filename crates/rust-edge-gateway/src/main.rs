@@ -1,8 +1,9 @@
 //! Rust Edge Gateway - Main entry point
 //!
 //! This is the main server that:
-//! - Routes HTTP requests to worker processes
-//! - Manages worker lifecycles
+//! - Routes HTTP requests to handler processes (v1) or dynamic libraries (v2)
+//! - Manages worker/handler lifecycles
+//! - Provides actor-based service runtime
 //! - Serves the admin UI
 //! - Handles configuration and persistence
 
@@ -15,6 +16,7 @@ mod compiler;
 mod openapi;
 mod bundle;
 mod services;
+mod runtime;  // New: Actor-based runtime
 
 use anyhow::Result;
 use axum::{
@@ -33,12 +35,32 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use crate::config::AppConfig;
 use crate::db::Database;
 use crate::worker::WorkerManager;
+use crate::runtime::{
+    Context,
+    Services as RuntimeServices,
+    HandlerRegistry,
+    context::{RuntimeConfig, ContextBuilder, RuntimeHandle},
+};
 
 /// Shared application state
 pub struct AppState {
     pub config: AppConfig,
     pub db: Database,
     pub workers: RwLock<WorkerManager>,
+    
+    // New v2 runtime components
+    pub runtime_services: RuntimeServices,
+    pub handler_registry: HandlerRegistry,
+    pub runtime_config: Arc<RuntimeConfig>,
+}
+
+impl AppState {
+    /// Create a Context for a request
+    pub fn create_context(&self) -> Context {
+        ContextBuilder::new(self.runtime_services.clone())
+            .config(self.runtime_config.clone())
+            .build()
+    }
 }
 
 #[tokio::main]
@@ -61,14 +83,28 @@ async fn main() -> Result<()> {
     db.migrate()?;
     tracing::info!("Database initialized");
 
-    // Initialize worker manager
+    // Initialize worker manager (v1 - subprocess based)
     let workers = WorkerManager::new(&config);
+
+    // Initialize v2 runtime components
+    let runtime_services = RuntimeServices::new();
+    let handler_registry = HandlerRegistry::new(config.handlers_dir.clone());
+    let runtime_config = Arc::new(RuntimeConfig {
+        handler_timeout_secs: config.handler_timeout_secs,
+        max_body_size: 10 * 1024 * 1024, // 10MB
+        debug: std::env::var("RUST_LOG").map(|v| v.contains("debug")).unwrap_or(false),
+    });
+    
+    tracing::info!("Runtime initialized (v2 actor-based services ready)");
 
     // Create shared state
     let state = Arc::new(AppState {
         config: config.clone(),
         db,
         workers: RwLock::new(workers),
+        runtime_services,
+        handler_registry,
+        runtime_config,
     });
 
     // Build admin API router

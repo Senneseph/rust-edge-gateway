@@ -29,3 +29,11 @@ serde_yaml = "0.9.34"
 openapiv3 = "2.2.0"
 zip = "2.2"
 tempfile = "3.14"
+
+# New dependencies for redesign
+libloading = "0.8"
+futures = "0.3"
+pin-project-lite = "0.2"
+dashmap = "6"
+base64 = "0.22"
+regex-lite = "0.1"
