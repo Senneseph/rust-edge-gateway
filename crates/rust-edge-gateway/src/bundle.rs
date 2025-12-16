@@ -47,52 +47,64 @@ pub fn parse_bundle(zip_bytes: &[u8]) -> Result<ParsedBundle> {
     let cursor = Cursor::new(zip_bytes);
     let mut archive = ZipArchive::new(cursor)
         .context("Failed to read zip archive")?;
-    
+
     let mut openapi_spec = None;
     let mut handlers = HashMap::new();
-    
+
+    tracing::debug!("Parsing bundle with {} files", archive.len());
+
     // First pass: find OpenAPI spec
     for i in 0..archive.len() {
         let mut file = archive.by_index(i)?;
-        let name = file.name().to_lowercase();
-        
+        let raw_name = file.name().to_string();
+        // Normalize path separators (Windows uses backslashes)
+        let name = raw_name.replace('\\', "/").to_lowercase();
+
+        tracing::debug!("Bundle file {}: raw={:?} normalized={:?}", i, raw_name, name);
+
         // Check if this is an OpenAPI spec file
         let filename = name.rsplit('/').next().unwrap_or(&name);
         if OPENAPI_FILENAMES.contains(&filename) && openapi_spec.is_none() {
             let mut content = String::new();
             file.read_to_string(&mut content)?;
             openapi_spec = Some(content);
+            tracing::debug!("Found OpenAPI spec: {}", filename);
         }
     }
-    
+
     // Second pass: find handler files
     for i in 0..archive.len() {
         let mut file = archive.by_index(i)?;
-        let path = file.name().to_string();
-        
+        let raw_path = file.name().to_string();
+        // Normalize path separators (Windows uses backslashes)
+        let path = raw_path.replace('\\', "/");
+
         // Skip directories and non-.rs files
-        if file.is_dir() || !path.ends_with(".rs") {
+        if file.is_dir() || !path.to_lowercase().ends_with(".rs") {
             continue;
         }
-        
+
         // Extract the handler name from the filename
         let filename = path.rsplit('/').next().unwrap_or(&path);
-        let handler_name = filename.trim_end_matches(".rs");
-        
+        let handler_name = filename.trim_end_matches(".rs").trim_end_matches(".RS");
+
         // Skip if it looks like a Rust internal file
         if handler_name == "main" || handler_name == "lib" || handler_name == "mod" {
             continue;
         }
-        
+
         // Read handler content
         let mut content = String::new();
         file.read_to_string(&mut content)?;
-        
+
         // Normalize the handler name for matching
         let normalized = normalize_handler_name(handler_name);
+        tracing::debug!("Found handler: raw={:?} filename={:?} normalized={:?}", raw_path, handler_name, normalized);
         handlers.insert(normalized, content);
     }
-    
+
+    tracing::debug!("Parsed bundle: openapi={}, handlers={:?}", openapi_spec.is_some(), handlers.keys().collect::<Vec<_>>());
+
     Ok(ParsedBundle {
         openapi_spec,
         handlers,
