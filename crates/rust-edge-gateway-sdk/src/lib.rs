@@ -9,6 +9,7 @@ pub mod services;
 pub mod storage;
 pub mod ipc;
 pub mod error;
+pub mod sqlite;
 
 pub mod prelude {
     //! Common imports for Rust Edge Gateway handlers
@@ -16,6 +17,7 @@ pub mod prelude {
     pub use crate::response::Response;
     pub use crate::services::*;
     pub use crate::storage::{Storage, StorageType};
+    pub use crate::sqlite::SqliteClient;
     pub use crate::ipc::{read_request, send_response};
     pub use crate::error::HandlerError;
     pub use serde::{Deserialize, Serialize};
@@ -27,4 +29,5 @@ pub use request::Request;
 pub use response::Response;
 pub use error::HandlerError;
 pub use storage::Storage;
+pub use sqlite::SqliteClient;
 

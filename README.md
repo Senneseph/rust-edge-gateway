@@ -14,10 +14,13 @@
 - 📦 **Service Integration** - Connect to databases, Redis, S3/MinIO, and more
 - 📋 **OpenAPI Import** - Import existing API specs and generate handler stubs
 - 🎯 **Multi-Domain** - Host multiple APIs on different domains
+- 🗄️ **Long-Lived Services** - Container-based SQLite and other persistent services
 
 ## 📚 Documentation
 
 Full documentation is available at **[docs.rust-edge-gateway.iffuso.com](https://docs.rust-edge-gateway.iffuso.com)**
+
+**New:** See the [SQLite Setup Guide](./SQLITE_SETUP_GUIDE.md) for using the long-lived SQLite service with your handlers.
 
 ## 🚀 Quick Start
 
@@ -28,7 +31,7 @@ Full documentation is available at **[docs.rust-edge-gateway.iffuso.com](https:/
 git clone https://github.com/Senneseph/Rust-Edge-Gateway.git
 cd Rust-Edge-Gateway
 
-# Start the gateway
+# Start the gateway (includes live-sqlite container)
 docker-compose up -d
 
 # Access the Admin UI
@@ -48,13 +51,7 @@ cargo build --release --bin rust-edge-gateway
 ### Option 3: Docker Production Image
 
 ```bash
-docker run -d \
-  --name rust-edge-gateway \
-  -p 8080:8080 \
-  -p 8081:8081 \
-  -v $(pwd)/data:/app/data \
-  -v $(pwd)/handlers:/app/handlers \
-  rust-edge-gateway:latest
+docker-compose -f docker-compose.prod.yml up -d
 ```
 
 ## ⚙️ Configuration
@@ -72,12 +69,15 @@ Configure via environment variables:
 | `RUST_EDGE_GATEWAY_HANDLER_TIMEOUT_SECS` | `30` | Handler request timeout |
 | `RUST_EDGE_GATEWAY_HANDLER_MAX_MEMORY_MB` | `64` | Handler memory limit |
 | `RUST_LOG` | `info` | Log level |
+| `SQLITE_SERVICE_HOST` | `live-sqlite` | SQLite service hostname |
+| `SQLITE_SERVICE_PORT` | `8080` | SQLite service port (internal) |
 
 ## 🔌 Management API
 
 The gateway exposes a REST API on the admin port (default: 8081):
 
 ```bash
+
 # Health check
 curl http://localhost:8081/api/health
 
