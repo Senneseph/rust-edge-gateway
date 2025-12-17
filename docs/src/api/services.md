@@ -118,6 +118,52 @@ Content-Type: application/json
 DELETE /api/services/{id}
 ```
 
+## Activate Service
+
+Start the service actor. This spawns an async task that manages connections to the backend service.
+
+```bash
+POST /api/services/{id}/activate
+```
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "data": {
+    "id": "550e8400-e29b-41d4-a716-446655440000",
+    "name": "my-storage",
+    "service_type": "minio",
+    "active": true,
+    "message": "MinIO service actor started successfully"
+  }
+}
+```
+
+## Deactivate Service
+
+Stop the service actor. In-flight operations complete before shutdown.
+
+```bash
+POST /api/services/{id}/deactivate
+```
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "data": {
+    "id": "550e8400-e29b-41d4-a716-446655440000",
+    "name": "my-storage",
+    "service_type": "minio",
+    "active": false,
+    "message": "Service deactivated"
+  }
+}
+```
+
 ## Test Service Connection
 
 Test if the service is reachable and properly configured.
@@ -148,6 +194,82 @@ POST /api/services/{id}/test
     "connected": false,
     "error": "Connection refused"
   }
+}
+```
+
+## MinIO File Operations
+
+When a MinIO service is activated, the following endpoints become available for file operations:
+
+### List Objects
+
+```bash
+GET /api/minio/objects
+GET /api/minio/objects?prefix=uploads/
+```
+
+**Response:**
+
+```json
+{
+  "bucket": "my-bucket",
+  "prefix": "",
+  "objects": [
+    {
+      "key": "uploads/file.txt",
+      "size": 1234,
+      "last_modified": "2025-12-17T00:29:55.205Z"
+    }
+  ]
+}
+```
+
+### Upload Object
+
+Upload a file using multipart form data.
+
+```bash
+POST /api/minio/objects
+Content-Type: multipart/form-data
+
+file: (binary data)
+key: uploads/myfile.txt
+```
+
+**Response:**
+
+```json
+{
+  "key": "uploads/myfile.txt",
+  "bucket": "my-bucket",
+  "size": 1234,
+  "message": "Upload successful"
+}
+```
+
+### Download Object
+
+```bash
+GET /api/minio/objects/{key}
+GET /api/minio/objects/uploads/myfile.txt
+```
+
+Returns the file content with appropriate Content-Type header based on file extension.
+
+### Delete Object
+
+```bash
+DELETE /api/minio/objects/{key}
+DELETE /api/minio/objects/uploads/myfile.txt
+```
+
+**Response:**
+
+```json
+{
+  "key": "uploads/myfile.txt",
+  "bucket": "my-bucket",
+  "deleted": true
 }
 ```
 

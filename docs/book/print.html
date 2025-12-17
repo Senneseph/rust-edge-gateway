@@ -2979,29 +2979,85 @@ println!("Cleaned up {} drained handlers", removed);
     },
 }
 <span class="boring">}</span></code></pre></pre>
-<h3 id="storage-actor"><a class="header" href="#storage-actor">Storage Actor</a></h3>
-<p>Manages object storage (S3/MinIO):</p>
+<h3 id="miniostorage-actor"><a class="header" href="#miniostorage-actor">MinIO/Storage Actor</a></h3>
+<p>Manages object storage (S3/MinIO). This is a fully implemented service actor:</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
-</span>pub enum StorageCommand {
-    Get {
+</span>pub enum MinioCommand {
+    GetObject {
         key: String,
-        reply: oneshot::Sender&lt;Result&lt;Vec&lt;u8&gt;&gt;&gt;,
+        reply: oneshot::Sender&lt;Result&lt;Vec&lt;u8&gt;, String&gt;&gt;,
     },
-    Put {
+    PutObject {
         key: String,
         data: Vec&lt;u8&gt;,
-        reply: oneshot::Sender&lt;Result&lt;()&gt;&gt;,
+        content_type: Option&lt;String&gt;,
+        reply: oneshot::Sender&lt;Result&lt;(), String&gt;&gt;,
     },
-    Delete {
+    DeleteObject {
         key: String,
-        reply: oneshot::Sender&lt;Result&lt;()&gt;&gt;,
+        reply: oneshot::Sender&lt;Result&lt;(), String&gt;&gt;,
     },
-    List {
-        prefix: String,
-        reply: oneshot::Sender&lt;Result&lt;Vec&lt;String&gt;&gt;&gt;,
+    ListObjects {
+        prefix: Option&lt;String&gt;,
+        reply: oneshot::Sender&lt;Result&lt;Vec&lt;ObjectInfo&gt;, String&gt;&gt;,
     },
 }
+<span class="boring">}</span></code></pre></pre>
+<h4 id="minio-actor-implementation"><a class="header" href="#minio-actor-implementation">MinIO Actor Implementation</a></h4>
+<p>The actor runs as an async task with an S3 bucket connection:</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub struct MinioHandle {
+    sender: mpsc::Sender&lt;MinioCommand&gt;,
+    bucket_name: String,
+}
+
+impl MinioHandle {
+    pub async fn spawn(config: &amp;MinioConfig) -&gt; Result&lt;Self&gt; {
+        let (tx, mut rx) = mpsc::channel(100);
+        let bucket = create_s3_bucket(config)?;
+
+        tokio::spawn(async move {
+            while let Some(cmd) = rx.recv().await {
+                match cmd {
+                    MinioCommand::GetObject { key, reply } =&gt; {
+                        let result = bucket.get_object(&amp;key).await;
+                        let _ = reply.send(result.map(|r| r.to_vec()));
+                    }
+                    MinioCommand::PutObject { key, data, content_type, reply } =&gt; {
+                        let ct = content_type.as_deref().unwrap_or("application/octet-stream");
+                        let result = bucket.put_object_with_content_type(&amp;key, &amp;data, ct).await;
+                        let _ = reply.send(result.map(|_| ()));
+                    }
+                    // ... other commands
+                }
+            }
+        });
+
+        Ok(MinioHandle { sender: tx, bucket_name: config.bucket.clone() })
+    }
+}
+<span class="boring">}</span></code></pre></pre>
+<h4 id="using-the-minio-actor"><a class="header" href="#using-the-minio-actor">Using the MinIO Actor</a></h4>
+<p>Handlers communicate with the actor via async message passing:</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>// Get an object
+let (tx, rx) = oneshot::channel();
+minio_handle.sender.send(MinioCommand::GetObject {
+    key: "uploads/file.txt".to_string(),
+    reply: tx,
+}).await?;
+let data = rx.await??;
+
+// List objects
+let (tx, rx) = oneshot::channel();
+minio_handle.sender.send(MinioCommand::ListObjects {
+    prefix: Some("uploads/".to_string()),
+    reply: tx,
+}).await?;
+let objects = rx.await??;
 <span class="boring">}</span></code></pre></pre>
 <h2 id="actor-handle"><a class="header" href="#actor-handle">Actor Handle</a></h2>
 <p>Handlers interact with actors through handles:</p>
@@ -3048,28 +3104,43 @@ impl&lt;C&gt; ActorHandle&lt;C&gt; {
 <li>Automatic reconnection on failure</li>
 </ul>
 <h2 id="configuration-4"><a class="header" href="#configuration-4">Configuration</a></h2>
-<p>Actors are configured via the Admin UI or API:</p>
+<p>Actors are configured via the Admin UI or API. First create the service configuration:</p>
 <pre><code class="language-json">{
-  "name": "main-db",
-  "type": "postgres",
+  "name": "my-storage",
+  "service_type": "minio",
   "config": {
-    "host": "db.example.com",
-    "port": 5432,
-    "database": "myapp",
-    "username": "app",
-    "password": "secret",
-    "pool_size": 10
+    "endpoint": "minio:9000",
+    "access_key": "minioadmin",
+    "secret_key": "minioadmin",
+    "bucket": "my-bucket",
+    "use_ssl": false,
+    "region": "us-east-1"
   }
 }
 </code></pre>
+<p>Then activate the service actor:</p>
+<pre><code class="language-bash">POST /api/services/{id}/activate
+</code></pre>
 <h2 id="lifecycle"><a class="header" href="#lifecycle">Lifecycle</a></h2>
 <ol>
-<li><strong>Gateway starts</strong> - Service actors are spawned</li>
-<li><strong>Handlers execute</strong> - Send commands to actors</li>
-<li><strong>Actors process</strong> - Execute operations, return results</li>
-<li><strong>Gateway stops</strong> - Actors are gracefully shut down</li>
+<li><strong>Service created</strong> - Configuration stored in database</li>
+<li><strong>Service activated</strong> - Actor task spawns, connects to backend</li>
+<li><strong>Requests arrive</strong> - Handlers send commands to actor via channel</li>
+<li><strong>Actor processes</strong> - Executes operations, returns results via oneshot</li>
+<li><strong>Service deactivated</strong> - Actor completes in-flight ops, shuts down</li>
+<li><strong>Gateway stops</strong> - All actors gracefully shut down</li>
 </ol>
-<p>Actors run for the lifetime of the gateway and are shared across all handlers.</p>
+<p>Actors can be activated/deactivated at runtime without restarting the gateway.</p>
+<h2 id="rest-endpoints-for-minio"><a class="header" href="#rest-endpoints-for-minio">REST Endpoints for MinIO</a></h2>
+<p>Once a MinIO service is activated, built-in handlers expose REST endpoints:</p>
+<div class="table-wrapper"><table><thead><tr><th>Endpoint</th><th>Method</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>/api/minio/objects</code></td><td>GET</td><td>List objects (with optional <code>?prefix=</code>)</td></tr>
+<tr><td><code>/api/minio/objects</code></td><td>POST</td><td>Upload file (multipart form)</td></tr>
+<tr><td><code>/api/minio/objects/{key}</code></td><td>GET</td><td>Download file</td></tr>
+<tr><td><code>/api/minio/objects/{key}</code></td><td>DELETE</td><td>Delete file</td></tr>
+</tbody></table>
+</div>
+<p>These handlers communicate with the MinIO actor via message passing, ensuring thread-safe access to the S3 bucket.</p>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="graceful-draining"><a class="header" href="#graceful-draining">Graceful Draining</a></h1>
 <p>Graceful draining enables zero-downtime deployments by allowing old handlers to complete in-flight requests while new handlers receive new requests.</p>
 <h2 id="the-problem"><a class="header" href="#the-problem">The Problem</a></h2>
@@ -4699,6 +4770,38 @@ Content-Type: application/json
 <h2 id="delete-service"><a class="header" href="#delete-service">Delete Service</a></h2>
 <pre><code class="language-bash">DELETE /api/services/{id}
 </code></pre>
+<h2 id="activate-service"><a class="header" href="#activate-service">Activate Service</a></h2>
+<p>Start the service actor. This spawns an async task that manages connections to the backend service.</p>
+<pre><code class="language-bash">POST /api/services/{id}/activate
+</code></pre>
+<p><strong>Response:</strong></p>
+<pre><code class="language-json">{
+  "success": true,
+  "data": {
+    "id": "550e8400-e29b-41d4-a716-446655440000",
+    "name": "my-storage",
+    "service_type": "minio",
+    "active": true,
+    "message": "MinIO service actor started successfully"
+  }
+}
+</code></pre>
+<h2 id="deactivate-service"><a class="header" href="#deactivate-service">Deactivate Service</a></h2>
+<p>Stop the service actor. In-flight operations complete before shutdown.</p>
+<pre><code class="language-bash">POST /api/services/{id}/deactivate
+</code></pre>
+<p><strong>Response:</strong></p>
+<pre><code class="language-json">{
+  "success": true,
+  "data": {
+    "id": "550e8400-e29b-41d4-a716-446655440000",
+    "name": "my-storage",
+    "service_type": "minio",
+    "active": false,
+    "message": "Service deactivated"
+  }
+}
+</code></pre>
 <h2 id="test-service-connection"><a class="header" href="#test-service-connection">Test Service Connection</a></h2>
 <p>Test if the service is reachable and properly configured.</p>
 <pre><code class="language-bash">POST /api/services/{id}/test
@@ -4720,6 +4823,57 @@ Content-Type: application/json
     "connected": false,
     "error": "Connection refused"
   }
+}
+</code></pre>
+<h2 id="minio-file-operations"><a class="header" href="#minio-file-operations">MinIO File Operations</a></h2>
+<p>When a MinIO service is activated, the following endpoints become available for file operations:</p>
+<h3 id="list-objects"><a class="header" href="#list-objects">List Objects</a></h3>
+<pre><code class="language-bash">GET /api/minio/objects
+GET /api/minio/objects?prefix=uploads/
+</code></pre>
+<p><strong>Response:</strong></p>
+<pre><code class="language-json">{
+  "bucket": "my-bucket",
+  "prefix": "",
+  "objects": [
+    {
+      "key": "uploads/file.txt",
+      "size": 1234,
+      "last_modified": "2025-12-17T00:29:55.205Z"
+    }
+  ]
+}
+</code></pre>
+<h3 id="upload-object"><a class="header" href="#upload-object">Upload Object</a></h3>
+<p>Upload a file using multipart form data.</p>
+<pre><code class="language-bash">POST /api/minio/objects
+Content-Type: multipart/form-data
+
+file: (binary data)
+key: uploads/myfile.txt
+</code></pre>
+<p><strong>Response:</strong></p>
+<pre><code class="language-json">{
+  "key": "uploads/myfile.txt",
+  "bucket": "my-bucket",
+  "size": 1234,
+  "message": "Upload successful"
+}
+</code></pre>
+<h3 id="download-object"><a class="header" href="#download-object">Download Object</a></h3>
+<pre><code class="language-bash">GET /api/minio/objects/{key}
+GET /api/minio/objects/uploads/myfile.txt
+</code></pre>
+<p>Returns the file content with appropriate Content-Type header based on file extension.</p>
+<h3 id="delete-object"><a class="header" href="#delete-object">Delete Object</a></h3>
+<pre><code class="language-bash">DELETE /api/minio/objects/{key}
+DELETE /api/minio/objects/uploads/myfile.txt
+</code></pre>
+<p><strong>Response:</strong></p>
+<pre><code class="language-json">{
+  "key": "uploads/myfile.txt",
+  "bucket": "my-bucket",
+  "deleted": true
 }
 </code></pre>
 <h2 id="service-configuration-examples"><a class="header" href="#service-configuration-examples">Service Configuration Examples</a></h2>

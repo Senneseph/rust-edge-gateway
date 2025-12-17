@@ -75,30 +75,90 @@ pub enum CacheCommand {
 }
 ```
 
-### Storage Actor
+### MinIO/Storage Actor
 
-Manages object storage (S3/MinIO):
+Manages object storage (S3/MinIO). This is a fully implemented service actor:
 
 ```rust
-pub enum StorageCommand {
-    Get {
+pub enum MinioCommand {
+    GetObject {
         key: String,
-        reply: oneshot::Sender<Result<Vec<u8>>>,
+        reply: oneshot::Sender<Result<Vec<u8>, String>>,
     },
-    Put {
+    PutObject {
         key: String,
         data: Vec<u8>,
-        reply: oneshot::Sender<Result<()>>,
+        content_type: Option<String>,
+        reply: oneshot::Sender<Result<(), String>>,
     },
-    Delete {
+    DeleteObject {
         key: String,
-        reply: oneshot::Sender<Result<()>>,
+        reply: oneshot::Sender<Result<(), String>>,
     },
-    List {
-        prefix: String,
-        reply: oneshot::Sender<Result<Vec<String>>>,
+    ListObjects {
+        prefix: Option<String>,
+        reply: oneshot::Sender<Result<Vec<ObjectInfo>, String>>,
     },
 }
+```
+
+#### MinIO Actor Implementation
+
+The actor runs as an async task with an S3 bucket connection:
+
+```rust
+pub struct MinioHandle {
+    sender: mpsc::Sender<MinioCommand>,
+    bucket_name: String,
+}
+
+impl MinioHandle {
+    pub async fn spawn(config: &MinioConfig) -> Result<Self> {
+        let (tx, mut rx) = mpsc::channel(100);
+        let bucket = create_s3_bucket(config)?;
+
+        tokio::spawn(async move {
+            while let Some(cmd) = rx.recv().await {
+                match cmd {
+                    MinioCommand::GetObject { key, reply } => {
+                        let result = bucket.get_object(&key).await;
+                        let _ = reply.send(result.map(|r| r.to_vec()));
+                    }
+                    MinioCommand::PutObject { key, data, content_type, reply } => {
+                        let ct = content_type.as_deref().unwrap_or("application/octet-stream");
+                        let result = bucket.put_object_with_content_type(&key, &data, ct).await;
+                        let _ = reply.send(result.map(|_| ()));
+                    }
+                    // ... other commands
+                }
+            }
+        });
+
+        Ok(MinioHandle { sender: tx, bucket_name: config.bucket.clone() })
+    }
+}
+```
+
+#### Using the MinIO Actor
+
+Handlers communicate with the actor via async message passing:
+
+```rust
+// Get an object
+let (tx, rx) = oneshot::channel();
+minio_handle.sender.send(MinioCommand::GetObject {
+    key: "uploads/file.txt".to_string(),
+    reply: tx,
+}).await?;
+let data = rx.await??;
+
+// List objects
+let (tx, rx) = oneshot::channel();
+minio_handle.sender.send(MinioCommand::ListObjects {
+    prefix: Some("uploads/".to_string()),
+    reply: tx,
+}).await?;
+let objects = rx.await??;
 ```
 
 ## Actor Handle
@@ -150,29 +210,50 @@ Actors manage connection pools:
 
 ## Configuration
 
-Actors are configured via the Admin UI or API:
+Actors are configured via the Admin UI or API. First create the service configuration:
 
 ```json
 {
-  "name": "main-db",
-  "type": "postgres",
+  "name": "my-storage",
+  "service_type": "minio",
   "config": {
-    "host": "db.example.com",
-    "port": 5432,
-    "database": "myapp",
-    "username": "app",
-    "password": "secret",
-    "pool_size": 10
+    "endpoint": "minio:9000",
+    "access_key": "minioadmin",
+    "secret_key": "minioadmin",
+    "bucket": "my-bucket",
+    "use_ssl": false,
+    "region": "us-east-1"
   }
 }
 ```
 
+Then activate the service actor:
+
+```bash
+POST /api/services/{id}/activate
+```
+
 ## Lifecycle
 
-1. **Gateway starts** - Service actors are spawned
-2. **Handlers execute** - Send commands to actors
-3. **Actors process** - Execute operations, return results
-4. **Gateway stops** - Actors are gracefully shut down
+1. **Service created** - Configuration stored in database
+2. **Service activated** - Actor task spawns, connects to backend
+3. **Requests arrive** - Handlers send commands to actor via channel
+4. **Actor processes** - Executes operations, returns results via oneshot
+5. **Service deactivated** - Actor completes in-flight ops, shuts down
+6. **Gateway stops** - All actors gracefully shut down
 
-Actors run for the lifetime of the gateway and are shared across all handlers.
+Actors can be activated/deactivated at runtime without restarting the gateway.
+
+## REST Endpoints for MinIO
+
+Once a MinIO service is activated, built-in handlers expose REST endpoints:
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/minio/objects` | GET | List objects (with optional `?prefix=`) |
+| `/api/minio/objects` | POST | Upload file (multipart form) |
+| `/api/minio/objects/{key}` | GET | Download file |
+| `/api/minio/objects/{key}` | DELETE | Delete file |
+
+These handlers communicate with the MinIO actor via message passing, ensuring thread-safe access to the S3 bucket.
 

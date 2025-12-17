@@ -3,24 +3,22 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Rust](https://img.shields.io/badge/rust-1.86+-orange.svg)](https://www.rust-lang.org)
 
-**Rust Edge Gateway** is a high-performance API gateway that lets you write request handlers in Rust. Your handlers are compiled to native binaries and run as isolated worker processes.
+**Rust Edge Gateway** is a high-performance API gateway with dynamic handler compilation and actor-based service architecture. Handlers are compiled to native dynamic libraries and loaded directly into the gateway process for minimal latency.
 
 ## ✨ Features
 
-- 🚀 **Native Performance** - Handlers compile to optimized native code
-- 🔒 **Process Isolation** - Each handler runs in its own process
-- 🔄 **Hot Reload** - Update handlers without restarting the gateway
+- 🚀 **Native Performance** - Handlers compile to dynamic libraries loaded in-process (~0.01ms overhead)
+- 🎭 **Service Actors** - Backend services run as isolated async actors with message-passing
+- 🔄 **Hot Reload** - Atomic handler swapping with graceful draining (zero downtime)
 - 🛠️ **Simple SDK** - Easy-to-use Request/Response API with async support
-- 📦 **Service Integration** - Connect to databases, Redis, S3/MinIO, and more
+- 📦 **MinIO/S3 Storage** - Built-in object storage operations via Service Actors
 - 📋 **OpenAPI Import** - Import existing API specs and generate handler stubs
 - 🎯 **Multi-Domain** - Host multiple APIs on different domains
-- 🗄️ **Long-Lived Services** - Container-based SQLite and other persistent services
+- 🏗️ **Dynamic Services** - Activate/deactivate services at runtime via API
 
 ## 📚 Documentation
 
 Full documentation is available at **[docs.rust-edge-gateway.iffuso.com](https://docs.rust-edge-gateway.iffuso.com)**
-
-**New:** See the [SQLite Setup Guide](./SQLITE_SETUP_GUIDE.md) for using the long-lived SQLite service with your handlers.
 
 ## 🚀 Quick Start
 
@@ -77,7 +75,6 @@ Configure via environment variables:
 The gateway exposes a REST API on the admin port (default: 8081):
 
 ```bash
-
 # Health check
 curl http://localhost:8081/api/health
 
@@ -103,10 +100,56 @@ curl -X POST http://localhost:8081/api/endpoints \
 curl -X POST "http://localhost:8081/api/import/openapi?domain=api.example.com" \
   -H "Content-Type: application/x-yaml" \
   --data-binary @openapi.yaml
+```
 
-# Import a bundle (OpenAPI + handlers)
-curl -X POST "http://localhost:8081/api/import/bundle?domain=api.example.com&compile=true" \
-  -F "bundle=@my-api.zip"
+## 🎭 Service Actors
+
+Service Actors are long-lived async tasks that manage backend connections. They are activated at runtime and communicate via message-passing.
+
+### Create and Activate a Service
+
+```bash
+# Create a MinIO service configuration
+curl -X POST http://localhost:8081/api/services \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "my-storage",
+    "service_type": "minio",
+    "config": {
+      "endpoint": "minio:9000",
+      "access_key": "minioadmin",
+      "secret_key": "minioadmin",
+      "bucket": "my-bucket",
+      "use_ssl": false,
+      "region": "us-east-1"
+    }
+  }'
+
+# Activate the service actor
+curl -X POST http://localhost:8081/api/services/{id}/activate
+
+# Deactivate when done
+curl -X POST http://localhost:8081/api/services/{id}/deactivate
+```
+
+### MinIO File Operations
+
+Once a MinIO service is activated, use the built-in file operation endpoints:
+
+```bash
+# List objects in bucket
+curl http://localhost:8081/api/minio/objects
+
+# Upload a file
+curl -X POST http://localhost:8081/api/minio/objects \
+  -F "file=@myfile.txt" \
+  -F "key=uploads/myfile.txt"
+
+# Download a file
+curl http://localhost:8081/api/minio/objects/uploads/myfile.txt
+
+# Delete a file
+curl -X DELETE http://localhost:8081/api/minio/objects/uploads/myfile.txt
 ```
 
 **Full API Reference:** See the [OpenAPI spec](docs/src/api/openapi.yaml) or the [Management API docs](https://docs.rust-edge-gateway.iffuso.com/api/management.html).
@@ -231,23 +274,31 @@ curl -X POST "http://localhost:8081/api/import/bundle?domain=api.example.com&com
 ## 🏗️ Architecture
 
 ```
-┌─────────────┐     ┌──────────────────┐     ┌─────────────────┐
-│   Client    │────▶│  Edge Gateway    │────▶│  Your Handler   │
-│  (HTTP)     │     │  (Axum Router)   │     │  (Native Binary)│
-│             │◀────│                  │◀────│                 │
-└─────────────┘     └──────────────────┘     └─────────────────┘
-                            │
-                    ┌───────┴───────┐
-                    │   Services    │
-                    │  (DB, Redis,  │
-                    │   S3, etc.)   │
-                    └───────────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│                        Edge Gateway                              │
+├─────────────────────────────────────────────────────────────────┤
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────────┐  │
+│  │   Router    │  │   Admin     │  │    Handler Registry     │  │
+│  │  (Axum)     │  │   API       │  │  (Dynamic Libraries)    │  │
+│  └──────┬──────┘  └─────────────┘  └───────────┬─────────────┘  │
+│         │                                       │                │
+│         │         ┌─────────────────────────────┘                │
+│         │         │                                              │
+│         ▼         ▼                                              │
+│  ┌─────────────────────────────────────────────────────────────┐│
+│  │                    Service Actors                            ││
+│  │  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐    ││
+│  │  │ Database │  │  Cache   │  │  MinIO   │  │  Email   │    ││
+│  │  │  Actor   │  │  Actor   │  │  Actor   │  │  Actor   │    ││
+│  │  └──────────┘  └──────────┘  └──────────┘  └──────────┘    ││
+│  └─────────────────────────────────────────────────────────────┘│
+└─────────────────────────────────────────────────────────────────┘
 ```
 
-- **Gateway Process**: Axum-based HTTP server handling routing and load balancing
-- **Worker Processes**: Compiled handler binaries, one per endpoint
-- **IPC Protocol**: Length-prefixed JSON over stdin/stdout
-- **Service Connectors**: Pooled connections to backend services
+- **Gateway Process**: Axum-based HTTP server with in-process handler execution
+- **Handler Registry**: Loads dynamic libraries (.so/.dll) with atomic hot-swapping
+- **Service Actors**: Async tasks managing backend connections via message-passing
+- **Graceful Draining**: In-flight requests complete before handler unload
 
 ## 🧪 Development
 
