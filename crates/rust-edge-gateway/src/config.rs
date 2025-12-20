@@ -23,10 +23,13 @@ pub struct AppConfig {
     
     /// API key for admin authentication (simple auth for MVP)
     pub admin_api_key: Option<String>,
-    
+
+    /// Default admin password for initial setup
+    pub default_admin_password: Option<String>,
+
     /// Handler request timeout in seconds
     pub handler_timeout_secs: u64,
-    
+
     /// Maximum handler memory in MB (for monitoring)
     pub handler_max_memory_mb: u64,
 }
@@ -68,6 +71,8 @@ impl AppConfig {
                 .ok()
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(64),
+
+            default_admin_password: env::var("DEFAULT_ADMIN_PASSWORD").ok(),
         }
     }
 }

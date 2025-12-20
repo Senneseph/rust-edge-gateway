@@ -24,6 +24,7 @@ function app() {
         view: 'endpoints',
         endpoints: [],
         services: [],
+        apiKeys: [],
         currentEndpoint: {
             id: null,
             name: '',
@@ -42,6 +43,31 @@ function app() {
             configJson: '{}',
             enabled: true
         },
+        currentApiKey: {
+            id: null,
+            label: '',
+            key: '',
+            enabled: true,
+            permissions: [],
+            expires_days: 0,
+            created_at: '',
+            expires_at: ''
+        },
+        availablePermissions: [
+            'admin:read',
+            'admin:write',
+            'admin:delete',
+            'endpoints:read',
+            'endpoints:write',
+            'endpoints:delete',
+            'services:read',
+            'services:write',
+            'services:delete',
+            'api-keys:read',
+            'api-keys:write',
+            'api-keys:delete'
+        ],
+        
         // Import state
         importFile: null,
         importOptions: {
@@ -62,11 +88,72 @@ function app() {
         async init() {
             await this.loadEndpoints();
             await this.loadServices();
+            await this.loadApiKeys();
             this.$watch('view', (val) => {
                 if (val === 'endpoint-editor') {
                     this.$nextTick(() => this.initEditor());
                 }
             });
+        },
+
+        async login() {
+            this.loginError = '';
+            try {
+                const res = await fetch('/auth/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(this.loginData)
+                });
+                 
+                const data = await res.json();
+                if (data.success) {
+                    if (data.requires_password_change) {
+                        // Redirect to password change page
+                        window.location.href = '/auth/change-password';
+                    } else {
+                        // Redirect to admin dashboard
+                        window.location.href = '/admin';
+                    }
+                } else {
+                    this.loginError = data.error || 'Login failed';
+                }
+            } catch (e) {
+                this.loginError = 'Network error: ' + e.message;
+            }
+        },
+        
+        async changePassword() {
+            this.passwordChangeError = '';
+            this.passwordChangeSuccess = '';
+            
+            if (this.passwordChangeData.newPassword !== this.passwordChangeData.confirmPassword) {
+                this.passwordChangeError = 'New passwords do not match';
+                return;
+            }
+            
+            try {
+                const res = await fetch('/auth/change-password', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        username: 'admin',
+                        current_password: this.passwordChangeData.currentPassword,
+                        new_password: this.passwordChangeData.newPassword
+                    })
+                });
+                
+                const data = await res.json();
+                if (data.success) {
+                    this.passwordChangeSuccess = 'Password changed successfully! Redirecting to admin panel...';
+                    setTimeout(() => {
+                        window.location.href = '/admin';
+                    }, 2000);
+                } else {
+                    this.passwordChangeError = data.message || 'Password change failed';
+                }
+            } catch (e) {
+                this.passwordChangeError = 'Network error: ' + e.message;
+            }
         },
 
         switchView(newView) {
@@ -98,6 +185,20 @@ function app() {
             } catch (e) {
                 console.error('Failed to load services:', e);
             }
+        },
+
+        async loadApiKeys() {
+            this.loading = true;
+            try {
+                const res = await fetch(`${API_BASE}/api-keys`);
+                const data = await res.json();
+                if (data.ok || data.success) {
+                    this.apiKeys = data.data || [];
+                }
+            } catch (e) {
+                console.error('Failed to load API keys:', e);
+            }
+            this.loading = false;
         },
 
         initEditor() {
@@ -402,10 +503,120 @@ function app() {
             this.importing = false;
         },
 
+        // ===== API Key Methods =====
+        newApiKey() {
+            this.currentApiKey = {
+                id: null,
+                label: '',
+                key: '',
+                enabled: true,
+                permissions: [],
+                expires_days: 0,
+                created_at: '',
+                expires_at: ''
+            };
+            this.message = '';
+            this.view = 'api-key-editor';
+        },
+
+        async saveApiKey() {
+            try {
+                const res = await fetch(`${API_BASE}/api-keys`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(this.currentApiKey)
+                });
+
+                const data = await res.json();
+                if (data.ok || data.success) {
+                    this.currentApiKey = data.data;
+                    this.showMessage('API key generated successfully!', 'success');
+                    await this.loadApiKeys();
+                    this.view = 'api-keys';
+                } else {
+                    this.showMessage(data.error || 'Failed to generate API key', 'error');
+                }
+            } catch (e) {
+                this.showMessage('Failed to generate API key: ' + e.message, 'error');
+            }
+        },
+
+        async copyApiKey(key) {
+            try {
+                await navigator.clipboard.writeText(key);
+                this.showMessage('API key copied to clipboard!', 'success');
+            } catch (e) {
+                this.showMessage('Failed to copy to clipboard', 'error');
+            }
+        },
+
+        // Login state
+        loginData: {
+            username: 'admin',
+            password: ''
+        },
+        loginError: '',
+        
+        // Password change state
+        passwordChangeData: {
+            currentPassword: '',
+            newPassword: '',
+            confirmPassword: ''
+        },
+        passwordChangeError: '',
+        passwordChangeSuccess: '',
+
+        async enableApiKey(key) {
+            try {
+                const res = await fetch(`${API_BASE}/api-keys/${key}/enable`, {
+                    method: 'POST'
+                });
+                const data = await res.json();
+                if (data.ok || data.success) {
+                    this.showMessage('API key enabled!', 'success');
+                    await this.loadApiKeys();
+                } else {
+                    this.showMessage(data.error || 'Failed to enable API key', 'error');
+                }
+            } catch (e) {
+                this.showMessage('Failed to enable API key: ' + e.message, 'error');
+            }
+        },
+
+        async disableApiKey(key) {
+            try {
+                const res = await fetch(`${API_BASE}/api-keys/${key}/disable`, {
+                    method: 'POST'
+                });
+                const data = await res.json();
+                if (data.ok || data.success) {
+                    this.showMessage('API key disabled!', 'success');
+                    await this.loadApiKeys();
+                } else {
+                    this.showMessage(data.error || 'Failed to disable API key', 'error');
+                }
+            } catch (e) {
+                this.showMessage('Failed to disable API key: ' + e.message, 'error');
+            }
+        },
+
+        async deleteApiKey(id) {
+            if (!confirm('Delete this API key? This cannot be undone.')) return;
+
+            try {
+                const res = await fetch(`${API_BASE}/api-keys/${id}`, { method: 'DELETE' });
+                const data = await res.json();
+                if (data.ok || data.success) {
+                    await this.loadApiKeys();
+                }
+            } catch (e) {
+                console.error('Delete failed:', e);
+            }
+        },
+
         showMessage(msg, type) {
             this.message = msg;
             this.messageType = type;
         }
     };
 }
-

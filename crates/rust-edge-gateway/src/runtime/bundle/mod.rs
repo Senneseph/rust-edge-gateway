@@ -19,5 +19,5 @@
 pub mod manifest;
 pub mod deploy;
 
-pub use manifest::{BundleManifest, RouteConfig, ServiceConfig as BundleServiceConfig};
-pub use deploy::{BundleDeployer, DeploymentResult};
+pub use manifest::BundleManifest;
+pub use deploy::BundleDeployer;

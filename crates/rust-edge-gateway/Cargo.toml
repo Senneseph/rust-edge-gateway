@@ -41,3 +41,4 @@ bytes = "1"
 
 # S3/MinIO client (rust-s3 is more compatible than aws-sdk-s3)
 rust-s3 = { version = "0.35", default-features = false, features = ["tokio-rustls-tls"] }
+bcrypt = "0.13"

@@ -16,6 +16,5 @@ pub mod bundle;
 
 pub use context::Context;
 pub use services::Services;
-pub use handler::{HandlerRegistry, LoadedHandler, DrainResult, HandlerStats, RequestGuard};
-pub use actor::{ActorHandle, ActorCommand};
-pub use bundle::{BundleManifest, BundleDeployer, DeploymentResult};
+pub use handler::HandlerRegistry;
+pub use bundle::BundleManifest;

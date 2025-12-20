@@ -51,7 +51,7 @@ impl SqliteClient {
         let url = format!("{}/query", self.base_url());
         
         let param_strings: Vec<String> = params.iter().map(|p| p.to_string()).collect();
-        let body = json!({
+        let _body = json!({
             "sql": sql,
             "params": param_strings,
         });
@@ -67,7 +67,7 @@ impl SqliteClient {
     }
 
     /// Execute an insert/update/delete statement
-    /// 
+    ///
     /// # Example
     /// ```ignore
     /// let client = SqliteClient::from_env();
@@ -77,7 +77,7 @@ impl SqliteClient {
         let url = format!("{}/execute", self.base_url());
         
         let param_strings: Vec<String> = params.iter().map(|p| p.to_string()).collect();
-        let body = json!({
+        let _body = json!({
             "sql": sql,
             "params": param_strings,
         });

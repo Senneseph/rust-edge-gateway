@@ -1,0 +1,11 @@
+FROM rust:latest
+
+# Install cross-compilation tools
+RUN apt-get update && apt-get install -y gcc-x86-64-linux-gnu
+
+# Set up the workspace
+WORKDIR /workspace
+COPY . /workspace
+
+# Build the binary for Linux
+RUN cargo build --release --target x86_64-unknown-linux-gnu --manifest-path crates/rust-edge-gateway/Cargo.toml

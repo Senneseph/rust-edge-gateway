@@ -22,6 +22,15 @@
         reverse_proxy rust-edge-gateway:8080
     }
     
+    # Security headers and HTTPS
+    tls admin@iffuso.com
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "DENY"
+        Content-Security-Policy "default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'"
+    }
+    
     # Logging
     log {
         output stdout

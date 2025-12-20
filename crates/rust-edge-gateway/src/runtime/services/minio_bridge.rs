@@ -4,11 +4,9 @@
 //! that wraps the gateway's MinioHandle, allowing handlers to use the
 //! SDK trait interface while the gateway manages the actual connections.
 
-use std::pin::Pin;
-use std::future::Future;
 use bytes::Bytes;
 
-use rust_edge_gateway_sdk::services::{MinioClient, ObjectInfo, ServiceError, ServiceResult, ServiceFuture};
+use rust_edge_gateway_sdk::services::{MinioClient, ObjectInfo, ServiceError, ServiceFuture};
 use super::minio_actor::MinioHandle;
 
 /// Wrapper that implements SDK's MinioClient trait using gateway's MinioHandle

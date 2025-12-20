@@ -9,6 +9,7 @@
 
 mod config;
 mod db;
+mod db_admin; // Admin authentication database
 mod router;
 mod worker;
 mod api;
@@ -18,6 +19,7 @@ mod bundle;
 mod services;
 mod runtime;  // New: Actor-based runtime
 mod handlers; // Built-in handlers for services
+mod admin_auth; // New: Admin authentication
 
 use anyhow::Result;
 use axum::{
@@ -32,7 +34,7 @@ use tower_http::{
     trace::TraceLayer,
 };
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
-
+ 
 use crate::config::AppConfig;
 use crate::db::Database;
 use crate::worker::WorkerManager;
@@ -40,8 +42,9 @@ use crate::runtime::{
     Context,
     Services as RuntimeServices,
     HandlerRegistry,
-    context::{RuntimeConfig, ContextBuilder, RuntimeHandle},
+    context::{RuntimeConfig, ContextBuilder},
 };
+use crate::admin_auth::{admin_auth, create_admin_auth_router};
 
 /// Shared application state
 pub struct AppState {
@@ -93,6 +96,22 @@ async fn main() -> Result<()> {
     let db = Database::new(&config.data_dir)?;
     db.migrate()?;
     tracing::info!("Database initialized");
+
+    // Initialize admin database and create initial admin user if needed
+    let admin_db = crate::db_admin::AdminDatabase::new(&config.data_dir)?;
+    admin_db.migrate()?;
+    
+    // Create initial admin user if DEFAULT_ADMIN_PASSWORD is set and no admin exists
+    if let Some(default_password) = &config.default_admin_password {
+        if admin_db.get_admin_by_username("admin")?.is_none() {
+            admin_db.create_initial_admin("admin", default_password)?;
+            tracing::info!("Created initial admin user with password from DEFAULT_ADMIN_PASSWORD");
+        } else {
+            tracing::info!("Admin user already exists, skipping initial admin creation");
+        }
+    } else {
+        tracing::warn!("DEFAULT_ADMIN_PASSWORD not set, skipping initial admin creation");
+    }
 
     // Initialize worker manager (v1 - subprocess based)
     let workers = WorkerManager::new(&config);
@@ -165,9 +184,14 @@ async fn main() -> Result<()> {
         .route("/minio/objects/{*key}", get(handlers::minio::get_object))
         .route("/minio/objects/{*key}", delete(handlers::minio::delete_object));
 
+    // Create protected admin API router with authentication middleware
+    let protected_admin_api = admin_api.layer(axum::middleware::from_fn_with_state(state.clone(), admin_auth));
+
     // Build admin router (serves static files + API)
     let admin_router = Router::new()
-        .nest("/api", admin_api)
+        .nest("/api", protected_admin_api)
+        .nest("/auth", create_admin_auth_router()) // Login and password change routes (no auth middleware)
+        .layer(axum::middleware::from_fn_with_state(state.clone(), admin_auth))
         .fallback_service(ServeDir::new(&config.static_dir));
 
     // Build main gateway router
@@ -209,4 +233,3 @@ async fn main() -> Result<()> {
 
     Ok(())
 }
-

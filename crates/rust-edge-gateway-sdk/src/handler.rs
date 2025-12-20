@@ -23,8 +23,8 @@
 
 use std::future::Future;
 use std::pin::Pin;
-
-use crate::{Request, Response, HandlerError};
+ 
+use crate::{Request, Response};
 
 /// Type alias for boxed future returned by handlers
 pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;

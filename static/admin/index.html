@@ -30,6 +30,11 @@
         .import-results { margin-top: 1rem; padding: 1rem; background: var(--pico-card-background-color); border-radius: 8px; }
         .import-results h4 { margin-bottom: 0.5rem; }
         .import-results ul { margin: 0; padding-left: 1.5rem; }
+        .api-key-list { margin-top: 1rem; }
+        .api-key-card { margin-bottom: 1rem; padding: 1rem; border: 1px solid var(--pico-muted-border-color); border-radius: 8px; background: var(--pico-code-background-color); }
+        .api-key-value { font-family: monospace; background: var(--pico-code-background-color); padding: 0.25rem 0.5rem; border-radius: 4px; word-break: break-all; }
+        .api-key-permissions { display: flex; flex-wrap: wrap; gap: 0.25rem; margin-top: 0.5rem; }
+        .api-key-permission { background: var(--pico-primary); color: white; padding: 0.1rem 0.5rem; border-radius: 4px; font-size: 0.75rem; }
     </style>
 </head>
 <body>
@@ -40,9 +45,55 @@
                 <li><a href="#" @click.prevent="switchView('endpoints')" :class="{ 'nav-active': view.startsWith('endpoint') }">Endpoints</a></li>
                 <li><a href="#" @click.prevent="switchView('services')" :class="{ 'nav-active': view.startsWith('service') }">Services</a></li>
                 <li><a href="#" @click.prevent="switchView('import')" :class="{ 'nav-active': view === 'import' }">Import</a></li>
+                <li><a href="#" @click.prevent="switchView('api-keys')" :class="{ 'nav-active': view === 'api-keys' }">API Keys</a></li>
                 <li><a href="https://docs.rust-edge-gateway.iffuso.com" target="_blank">Docs</a></li>
             </ul>
         </nav>
+
+        <!-- Login Redirect Logic -->
+        <template x-if="view === 'login'">
+            <div style="max-width: 400px; margin: 50px auto; padding: 20px;">
+                <h1 style="text-align: center;">Admin Login</h1>
+                <p style="color: #6b7280; text-align: center; margin-bottom: 20px;">Please log in to continue.</p>
+                <form @submit.prevent="login()" style="display: flex; flex-direction: column; gap: 15px;">
+                    <div>
+                        <label for="username" style="display: block; margin-bottom: 5px;">Username</label>
+                        <input type="text" id="username" x-model="loginData.username" required style="width: 100%; padding: 8px; box-sizing: border-box;">
+                    </div>
+                    <div>
+                        <label for="password" style="display: block; margin-bottom: 5px;">Password</label>
+                        <input type="password" id="password" x-model="loginData.password" required style="width: 100%; padding: 8px; box-sizing: border-box;">
+                    </div>
+                    <button type="submit" style="padding: 10px; background-color: #007bff; color: white; border: none; cursor: pointer; border-radius: 4px;">Login</button>
+                </form>
+                <p x-show="loginError" style="color: #ef4444; margin-top: 15px;" x-text="loginError"></p>
+            </div>
+        </template>
+        
+        <!-- Password Change View -->
+        <template x-if="view === 'change-password'">
+            <div style="max-width: 400px; margin: 50px auto; padding: 20px;">
+                <h1 style="text-align: center;">Change Password</h1>
+                <p style="color: #6b7280; text-align: center; margin-bottom: 20px;">You must change your password before accessing the admin panel.</p>
+                <form @submit.prevent="changePassword()" style="display: flex; flex-direction: column; gap: 15px;">
+                    <div>
+                        <label for="currentPassword" style="display: block; margin-bottom: 5px;">Current Password</label>
+                        <input type="password" id="currentPassword" x-model="passwordChangeData.currentPassword" required style="width: 100%; padding: 8px; box-sizing: border-box;">
+                    </div>
+                    <div>
+                        <label for="newPassword" style="display: block; margin-bottom: 5px;">New Password</label>
+                        <input type="password" id="newPassword" x-model="passwordChangeData.newPassword" required style="width: 100%; padding: 8px; box-sizing: border-box;">
+                    </div>
+                    <div>
+                        <label for="confirmPassword" style="display: block; margin-bottom: 5px;">Confirm New Password</label>
+                        <input type="password" id="confirmPassword" x-model="passwordChangeData.confirmPassword" required style="width: 100%; padding: 8px; box-sizing: border-box;">
+                    </div>
+                    <button type="submit" style="padding: 10px; background-color: #007bff; color: white; border: none; cursor: pointer; border-radius: 4px;">Change Password</button>
+                </form>
+                <p x-show="passwordChangeError" style="color: #ef4444; margin-top: 15px;" x-text="passwordChangeError"></p>
+                <p x-show="passwordChangeSuccess" style="color: #22c55e; margin-top: 15px;" x-text="passwordChangeSuccess"></p>
+            </div>
+        </template>
 
         <!-- Endpoint List View -->
         <template x-if="view === 'endpoints'">
@@ -265,10 +316,118 @@
                 </template>
             </div>
         </template>
+
+        <!-- API Keys View -->
+        <template x-if="view === 'api-keys'">
+            <div>
+                <header>
+                    <h1>API Keys</h1>
+                    <button @click="newApiKey()">+ Generate API Key</button>
+                </header>
+
+                <div x-show="loading">Loading...</div>
+
+                <div class="api-key-list">
+                    <template x-for="key in apiKeys" :key="key.id">
+                        <article class="api-key-card">
+                            <div class="item-header">
+                                <div>
+                                    <strong x-text="key.label"></strong>
+                                    <span class="status-badge"
+                                          :class="key.enabled ? 'status-enabled' : 'status-disabled'"
+                                          x-text="key.enabled ? 'Enabled' : 'Disabled'"></span>
+                                </div>
+                                <div class="btn-group">
+                                    <button class="outline" @click="copyApiKey(key.key)">Copy</button>
+                                    <button class="outline" @click="disableApiKey(key.key)" x-show="key.enabled">Disable</button>
+                                    <button class="outline" @click="enableApiKey(key.key)" x-show="!key.enabled">Enable</button>
+                                    <button class="outline" @click="deleteApiKey(key.id)">Delete</button>
+                                </div>
+                            </div>
+                            <div class="api-key-value" x-text="key.key"></div>
+                            <div class="api-key-permissions" x-show="key.permissions.length > 0">
+                                <template x-for="perm in key.permissions">
+                                    <span class="api-key-permission" x-text="perm"></span>
+                                </template>
+                            </div>
+                            <div style="margin-top: 0.5rem; font-size: 0.8rem; color: var(--pico-muted-text-color);">
+                                Created: <span x-text="new Date(key.created_at).toLocaleString()"></span>
+                                <template x-if="key.expires_at">
+                                    <span> | Expires: <span x-text="new Date(key.expires_at).toLocaleString()"></span></span>
+                                </template>
+                            </div>
+                        </article>
+                    </template>
+                    <template x-if="apiKeys.length === 0 && !loading">
+                        <p>No API keys generated. <a href="#" @click.prevent="newApiKey()">Generate one</a></p>
+                    </template>
+                </div>
+
+                <!-- New API Key Form -->
+                <template x-if="view === 'api-key-editor'">
+                    <div style="margin-top: 2rem; padding: 1rem; border: 1px solid var(--pico-muted-border-color); border-radius: 8px;">
+                        <h2>Generate New API Key</h2>
+                        <form @submit.prevent="saveApiKey()">
+                            <div class="grid">
+                                <label>Label <input type="text" x-model="currentApiKey.label" required></label>
+                                <label>Expires After (days) <input type="number" x-model="currentApiKey.expires_days" min="0" max="365" value="0"></label>
+                            </div>
+                            
+                            <label>Permissions</label>
+                            <div style="margin-bottom: 1rem;">
+                                <template x-for="perm in availablePermissions" :key="perm">
+                                    <label style="display: flex; align-items: center; margin-bottom: 0.5rem;">
+                                        <input type="checkbox" :value="perm" x-model="currentApiKey.permissions">
+                                        <span style="margin-left: 0.5rem;" x-text="perm"></span>
+                                    </label>
+                                </template>
+                            </div>
+
+                            <div class="grid" style="margin-top: 1rem;">
+                                <button type="submit">Generate</button>
+                                <button type="button" class="outline" @click="view = 'api-keys'">Cancel</button>
+                            </div>
+                        </form>
+                    </div>
+                </template>
+            </div>
+        </template>
+
+        <!-- Login Redirect Logic -->
+        <template x-if="view === 'login'">
+            <div style="max-width: 400px; margin: 50px auto; padding: 20px;">
+                <h1 style="text-align: center;">Admin Login</h1>
+                <p style="color: #6b7280; text-align: center; margin-bottom: 20px;">Please log in to continue.</p>
+                <form @submit.prevent="login()" style="display: flex; flex-direction: column; gap: 15px;">
+                    <div>
+                        <label for="username" style="display: block; margin-bottom: 5px;">Username</label>
+                        <input type="text" id="username" x-model="loginData.username" required style="width: 100%; padding: 8px; box-sizing: border-box;">
+                    </div>
+                    <div>
+                        <label for="password" style="display: block; margin-bottom: 5px;">Password</label>
+                        <input type="password" id="password" x-model="loginData.password" required style="width: 100%; padding: 8px; box-sizing: border-box;">
+                    </div>
+                    <button type="submit" style="padding: 10px; background-color: #007bff; color: white; border: none; cursor: pointer; border-radius: 4px;">Login</button>
+                </form>
+                <p x-show="loginError" style="color: #ef4444; margin-top: 15px;" x-text="loginError"></p>
+            </div>
+        </template>
     </main>
 
     <script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs/loader.js"></script>
-    <script src="app.js?v=2"></script>
+    <script src="app.js?v=3"></script>
+    <script>
+        // Override app.init to handle login redirect
+        const originalInit = app.prototype.init;
+        app.prototype.init = async function() {
+            await originalInit.call(this);
+            
+            // Check if we need to redirect to login
+            const currentPath = window.location.pathname;
+            if (currentPath === '/admin' || currentPath === '/admin/') {
+                this.view = 'login';
+            }
+        };
+    </script>
 </body>
 </html>
-

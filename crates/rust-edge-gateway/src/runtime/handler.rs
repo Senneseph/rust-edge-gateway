@@ -430,7 +430,7 @@ impl HandlerRegistry {
     pub async fn execute_with_timeout(
         &self,
         endpoint_id: &str,
-        ctx: &Context,
+        _ctx: &Context,
         req: Request,
         timeout: Duration,
     ) -> Result<Response> {

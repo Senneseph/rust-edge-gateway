@@ -15,11 +15,10 @@ pub mod minio_bridge;
 
 use serde::{Deserialize, Serialize};
 
-pub use database::{Database, DatabaseConfig, DatabaseCommand};
-pub use cache::{Cache, CacheConfig, CacheCommand};
-pub use storage::{ObjectStore, StorageConfig, StorageCommand};
-pub use minio_actor::{MinioHandle, MinioConfig, MinioServiceActor, ObjectInfo};
-pub use minio_bridge::MinioClientBridge;
+pub use database::{Database, DatabaseConfig};
+pub use cache::{Cache, CacheConfig};
+pub use storage::{ObjectStore, StorageConfig};
+pub use minio_actor::{MinioHandle, MinioConfig, MinioServiceActor};
 
 /// Container for all available services
 ///
