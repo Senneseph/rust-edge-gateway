@@ -2,7 +2,7 @@
 
 ## 🔒 Security Issue Fixed
 
-**CRITICAL VULNERABILITY RESOLVED**: The admin UI at `https://rust-edge-gateway.iffuso.com/admin/` was completely unprotected and accessible without authentication.
+**CRITICAL VULNERABILITY RESOLVED**: The admin UI at `https://{$TARGET_DOMAIN}/admin/` was completely unprotected and accessible without authentication.
 
 ## Problem Analysis
 
@@ -106,16 +106,16 @@ All authentication tests **PASS**:
 
 ## Deployment Status
 
-✅ **Deployed to Production**: https://rust-edge-gateway.iffuso.com  
-✅ **Admin UI Protected**: Requires login to access  
-✅ **Session Management Active**: 24-hour sessions with automatic expiration  
-✅ **All Tests Passing**: Comprehensive authentication flow verified  
+✅ **Deployed to Production**: https://rust-edge-gateway.{$TARGET_DOMAIN}
+✅ **Admin UI Protected**: Requires login to access
+✅ **Session Management Active**: 24-hour sessions with automatic expiration
+✅ **All Tests Passing**: Comprehensive authentication flow verified
 
 ## Usage
 
 ### For Administrators
 
-1. Navigate to `https://rust-edge-gateway.iffuso.com/admin/`
+1. Navigate to `https://rust-edge-gateway.{$TARGET_DOMAIN}/admin/`
 2. You'll be redirected to login page (or see 401 error)
 3. Login with admin credentials (default password from `.env`)
 4. Session cookie is automatically managed by browser
