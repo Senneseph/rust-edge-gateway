@@ -15,7 +15,7 @@ Rust Edge Gateway is a lightweight alternative to AWS Lambda that:
 
 ### 1. Access the Admin UI
 
-Navigate to `https://rust-edge-gateway.iffuso.com/admin/` and log in with your API key.
+Navigate to `https://$env:TARGET_DOMAIN/admin/` and log in with your API key.
 
 ### 2. Create an Endpoint
 

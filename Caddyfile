@@ -1,7 +1,7 @@
 # Rust Edge Gateway Caddy Configuration
 # Automatic HTTPS with Let's Encrypt
 
-{$TARGET_DOMAIN:rust-edge-gateway.iffuso.com} {
+{$TARGET_DOMAIN} {
     # Admin UI
     handle /admin/* {
         reverse_proxy rust-edge-gateway:8081
@@ -39,7 +39,7 @@
 }
 
 # Wildcard for handler domains
-*.{$TARGET_DOMAIN:rust-edge-gateway.iffuso.com} {
+*.{$TARGET_DOMAIN} {
     reverse_proxy rust-edge-gateway:8080
     
     log {

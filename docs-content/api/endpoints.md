@@ -2,7 +2,7 @@
 
 The Rust Edge Gateway Admin API allows programmatic management of endpoints.
 
-**Base URL:** `https://rust-edge-gateway.iffuso.com/api`
+**Base URL:** `https://$env:TARGET_DOMAIN/api`
 
 ## Authentication
 

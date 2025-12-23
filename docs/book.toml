@@ -11,10 +11,10 @@ build-dir = "book"
 [output.html]
 default-theme = "rust"
 preferred-dark-theme = "coal"
-git-repository-url = "https://github.com/Senneseph/Rust-Edge-Gateway"
-edit-url-template = "https://github.com/Senneseph/Rust-Edge-Gateway/edit/master/docs/{path}"
+git-repository-url = "https://github.com/Senneseph/rust-edge-gateway"
+edit-url-template = "https://github.com/Senneseph/rust-edge-gateway/edit/master/docs/{path}"
 site-url = "/docs/"
-cname = "docs.rust-edge-gateway.iffuso.com"
+cname = "$env:DOCS_DOMAIN"
 
 [output.html.fold]
 enable = true

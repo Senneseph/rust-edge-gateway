@@ -99,7 +99,7 @@ curl http://localhost:9080/users
 Point your domain to the Rust Edge Gateway server:
 
 ```
-api.example.com  A  167.71.191.234
+api.example.com  A  $DEPLOY_SERVER_IP
 ```
 
 ### 6. Deploy

@@ -18,7 +18,7 @@
 
 ## 📚 Documentation
 
-Full documentation is available at **[docs.rust-edge-gateway.iffuso.com](https://docs.rust-edge-gateway.iffuso.com)**
+Full documentation is available at **[docs.$env:DOCS_DOMAIN](https://docs.$env:DOCS_DOMAIN)**
 
 ## 🚀 Quick Start
 
@@ -26,8 +26,8 @@ Full documentation is available at **[docs.rust-edge-gateway.iffuso.com](https:/
 
 ```bash
 # Clone the repository
-git clone https://github.com/Senneseph/Rust-Edge-Gateway.git
-cd Rust-Edge-Gateway
+git clone https://github.com/Senneseph/rust-edge-gateway.git
+cd rust-edge-gateway
 
 # Start the gateway (includes live-sqlite container)
 docker-compose up -d
@@ -152,7 +152,7 @@ curl http://localhost:8081/api/minio/objects/uploads/myfile.txt
 curl -X DELETE http://localhost:8081/api/minio/objects/uploads/myfile.txt
 ```
 
-**Full API Reference:** See the [OpenAPI spec](docs/src/api/openapi.yaml) or the [Management API docs](https://docs.rust-edge-gateway.iffuso.com/api/management.html).
+**Full API Reference:** See the [OpenAPI spec](docs/src/api/openapi.yaml) or the [Management API docs](https://$env:DOCS_DOMAIN/api/management.html).
 
 ## 🦀 Writing Handlers
 

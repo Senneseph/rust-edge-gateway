@@ -13,13 +13,13 @@ info:
   version: 0.1.0
   contact:
     name: Rust Edge Gateway
-    url: https://docs.rust-edge-gateway.iffuso.com/
+    url: https://$env:DOCS_DOMAIN/
   license:
     name: MIT
     url: https://opensource.org/licenses/MIT
 
 servers:
-  - url: https://rust-edge-gateway.iffuso.com/api
+  - url: https://$env:TARGET_DOMAIN/api
     description: Production Admin API
   - url: http://localhost:8081/api
     description: Local Development

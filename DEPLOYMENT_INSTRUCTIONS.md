@@ -18,16 +18,20 @@
 
 ### 2. Prepare Environment Variables
 
-Ensure your `.env` file contains the required environment variables, including:
+Create a `.env` file from the template and fill in your values:
 
+```bash
+cp .env.example .env
+# Edit .env with your actual values
 ```
-DEFAULT_ADMIN_PASSWORD=your_secure_password_here
-DIGITALOCEAN_ACCESS_TOKEN=your_token
-DEPLOY_SERVER_IP=your_server_ip
-TARGET_DOMAIN=your_domain.com
-DOCS_DOMAIN=docs.your_domain.com
-SSH_KEY=$env:USERPROFILE\.ssh\your_key
-```
+
+Required environment variables:
+- `DEFAULT_ADMIN_PASSWORD` - Initial admin password (will require change on first login)
+- `DIGITALOCEAN_ACCESS_TOKEN` - Your DigitalOcean API token
+- `DEPLOY_SERVER_IP` - Your server's IP address
+- `TARGET_DOMAIN` - Your domain name
+- `DOCS_DOMAIN` - Your documentation domain
+- `SSH_KEY` - Path to your SSH key
 
 The `DEFAULT_ADMIN_PASSWORD` will be used to create the initial admin user on first startup and will require a password change on first login.
 
@@ -42,16 +46,16 @@ The `DEFAULT_ADMIN_PASSWORD` will be used to create the initial admin user on fi
 
 ```bash
 # Copy the built binary and docker-compose file to the server
-scp -i "$HOME/.ssh/a-icon-deploy" target/release/rust-edge-gateway root@167.71.191.234:/opt/rust-edge-gateway/
-scp -i "$HOME/.ssh/a-icon-deploy" docker-compose.prod.yml root@167.71.191.234:/opt/rust-edge-gateway/
-scp -i "$HOME/.ssh/a-icon-deploy" .env root@167.71.191.234:/opt/rust-edge-gateway/
+scp -i "$SSH_KEY" target/release/rust-edge-gateway root@$DEPLOY_SERVER_IP:/opt/rust-edge-gateway/
+scp -i "$SSH_KEY" docker-compose.prod.yml root@$DEPLOY_SERVER_IP:/opt/rust-edge-gateway/
+scp -i "$SSH_KEY" .env root@$DEPLOY_SERVER_IP:/opt/rust-edge-gateway/
 ```
 
 ### 4. Connect to the Droplet and Deploy
 
 ```bash
 # Connect to the DigitalOcean Droplet
-ssh -i "$HOME/.ssh/a-icon-deploy" root@167.71.191.234
+ssh -i "$SSH_KEY" root@$DEPLOY_SERVER_IP
 ```
 
 Once connected to the server, run the following commands:
@@ -75,7 +79,7 @@ docker-compose -f docker-compose.prod.yml logs -f
 
 ### 5. Verify Deployment
 
-Visit the application at: https://rust-edge-gateway.iffuso.com/
+Visit the application at: https://${TARGET_DOMAIN}/
 
 Check that:
 - The application is responding

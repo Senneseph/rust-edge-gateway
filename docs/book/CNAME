@@ -1,1 +1,1 @@
-docs.rust-edge-gateway.iffuso.com
+docs.$env:DOCS_DOMAIN

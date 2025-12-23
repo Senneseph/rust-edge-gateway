@@ -112,7 +112,7 @@ Write-Host ""
 Write-Host "📝 Next Steps:" -ForegroundColor Blue
 Write-Host "1. Set DEFAULT_ADMIN_PASSWORD environment variable" -ForegroundColor Blue
 Write-Host "2. Deploy the application" -ForegroundColor Blue
-Write-Host "3. Access admin panel at https://rust-edge-gateway.iffuso.com/admin" -ForegroundColor Blue
+Write-Host "3. Access admin panel at https://$env:TARGET_DOMAIN/admin" -ForegroundColor Blue
 Write-Host "4. Log in with default admin password" -ForegroundColor Blue
 Write-Host "5. Change password when prompted" -ForegroundColor Blue
 Write-Host "6. Generate API keys for API access" -ForegroundColor Blue
