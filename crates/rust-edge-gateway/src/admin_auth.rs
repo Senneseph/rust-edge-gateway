@@ -2,7 +2,7 @@
 
 use axum::{
     extract::{State, Path, Request},
-    http::{HeaderMap, StatusCode},
+    http::{header, HeaderMap, StatusCode},
     response::{IntoResponse, Response},
     routing::{get, post, delete},
     Router,
@@ -16,6 +16,38 @@ use crate::db_admin::{AdminDatabase, AdminUser, ApiKey};
 use crate::AppState;
 use bcrypt::verify;
 use base64::Engine;
+
+/// Password validation requirements
+const MIN_PASSWORD_LENGTH: usize = 12;
+const REQUIRE_UPPERCASE: bool = true;
+const REQUIRE_LOWERCASE: bool = true;
+const REQUIRE_DIGIT: bool = true;
+const REQUIRE_SPECIAL: bool = true;
+
+/// Validate password strength
+fn validate_password(password: &str) -> Result<(), String> {
+    if password.len() < MIN_PASSWORD_LENGTH {
+        return Err(format!("Password must be at least {} characters long", MIN_PASSWORD_LENGTH));
+    }
+
+    if REQUIRE_UPPERCASE && !password.chars().any(|c| c.is_uppercase()) {
+        return Err("Password must contain at least one uppercase letter".to_string());
+    }
+
+    if REQUIRE_LOWERCASE && !password.chars().any(|c| c.is_lowercase()) {
+        return Err("Password must contain at least one lowercase letter".to_string());
+    }
+
+    if REQUIRE_DIGIT && !password.chars().any(|c| c.is_numeric()) {
+        return Err("Password must contain at least one digit".to_string());
+    }
+
+    if REQUIRE_SPECIAL && !password.chars().any(|c| !c.is_alphanumeric()) {
+        return Err("Password must contain at least one special character".to_string());
+    }
+
+    Ok(())
+}
 
 /// Extract admin user from request headers
 #[derive(Debug)]
@@ -204,33 +236,55 @@ pub async fn login(
     State(state): State<Arc<AppState>>,
     axum::extract::Json(login_data): axum::extract::Json<LoginData>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
+    // Check rate limit for this username
+    if let Err(retry_after) = state.login_rate_limiter.check(&login_data.username) {
+        info!(username = %login_data.username, "Login rate limited");
+        return Err((
+            StatusCode::TOO_MANY_REQUESTS,
+            format!("Too many login attempts. Try again in {} seconds", retry_after.as_secs())
+        ));
+    }
+
     let admin_db = AdminDatabase::new(&state.config.data_dir)
         .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to initialize admin database".to_string()))?;
-    
+
     let user = admin_db.get_admin_by_username(&login_data.username)
         .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to query admin database".to_string()))?
         .ok_or((StatusCode::UNAUTHORIZED, "Invalid username or password".to_string()))?;
-    
+
     if !verify(&login_data.password, &user.password_hash).map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Password verification failed".to_string()))? {
         return Err((StatusCode::UNAUTHORIZED, "Invalid username or password".to_string()));
     }
-    
+
+    // Reset rate limit on successful login
+    state.login_rate_limiter.reset(&login_data.username);
+
+    // Create session
+    let session_id = state.session_store.create_session(&login_data.username);
+    let session_cookie = crate::session::create_session_cookie(&session_id, 24 * 60 * 60); // 24 hours
+
     // If password change is required, return success but indicate change needed
     if user.requires_password_change {
         info!(username = %login_data.username, "Admin user logged in, password change required");
-        return Ok(axum::Json(LoginResponse {
-            success: true,
-            requires_password_change: true,
-            message: "Password change required".to_string(),
-        }));
+        return Ok((
+            [(header::SET_COOKIE, session_cookie)],
+            axum::Json(LoginResponse {
+                success: true,
+                requires_password_change: true,
+                message: "Password change required".to_string(),
+            })
+        ));
     }
-    
+
     info!(username = %login_data.username, "Admin user logged in successfully");
-    Ok(axum::Json(LoginResponse {
-        success: true,
-        requires_password_change: false,
-        message: "Login successful".to_string(),
-    }))
+    Ok((
+        [(header::SET_COOKIE, session_cookie)],
+        axum::Json(LoginResponse {
+            success: true,
+            requires_password_change: false,
+            message: "Login successful".to_string(),
+        })
+    ))
 }
 
 /// Login data structure
@@ -253,22 +307,27 @@ pub async fn change_password(
     State(state): State<Arc<AppState>>,
     axum::extract::Json(change_data): axum::extract::Json<ChangePasswordData>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
+    // Validate new password strength
+    if let Err(err) = validate_password(&change_data.new_password) {
+        return Err((StatusCode::BAD_REQUEST, err));
+    }
+
     let admin_db = AdminDatabase::new(&state.config.data_dir)
         .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to initialize admin database".to_string()))?;
-    
+
     let user = admin_db.get_admin_by_username(&change_data.username)
         .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to query admin database".to_string()))?
         .ok_or((StatusCode::UNAUTHORIZED, "Invalid username".to_string()))?;
-    
+
     // Verify current password
     if !verify(&change_data.current_password, &user.password_hash).map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Password verification failed".to_string()))? {
         return Err((StatusCode::UNAUTHORIZED, "Current password is incorrect".to_string()));
     }
-    
+
     // Update password
     admin_db.update_admin_password(&change_data.username, &change_data.new_password)
         .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to update password".to_string()))?;
-    
+
     info!(username = %change_data.username, "Admin password changed successfully");
     Ok(axum::Json(PasswordChangeResponse {
         success: true,
@@ -382,9 +441,22 @@ pub async fn change_password_page() -> Response {
 }
 
 /// Handler for logout
-pub async fn logout() -> impl IntoResponse {
-    // Clear session/cookie
-    axum::response::Html("<html><body><h1>Logged out</h1><p>You have been logged out.</p><a href='/'>Login again</a></body></html>").into_response()
+pub async fn logout(
+    State(state): State<Arc<AppState>>,
+    request: Request,
+) -> impl IntoResponse {
+    // Extract session ID from cookie and delete it
+    if let Some(session_id) = crate::session::extract_session_id_from_request(&request) {
+        state.session_store.delete_session(&session_id);
+    }
+
+    // Clear session cookie
+    let delete_cookie = crate::session::delete_session_cookie();
+
+    (
+        [(header::SET_COOKIE, delete_cookie)],
+        axum::response::Html("<html><body><h1>Logged out</h1><p>You have been logged out.</p><a href='/auth/login'>Login again</a></body></html>")
+    )
 }
 
 /// Handler for listing all API keys
@@ -503,12 +575,17 @@ pub struct JsonResponse {
     pub data: serde_json::Value,
 }
 
-/// Create admin authentication routes
+/// Create admin authentication routes (public routes only - login, password change)
 pub fn create_admin_auth_router() -> Router<Arc<AppState>> {
     Router::new()
         .route("/login", get(login_page).post(login))
         .route("/change-password", get(change_password_page).post(change_password))
-        .route("/logout", get(logout))
+        .route("/logout", get(logout).post(logout))
+}
+
+/// Create protected admin routes (requires authentication)
+pub fn create_protected_admin_routes() -> Router<Arc<AppState>> {
+    Router::new()
         .route("/api-keys", get(list_api_keys).post(create_api_key))
         .route("/api-keys/{key}/enable", post(enable_api_key))
         .route("/api-keys/{key}/disable", post(disable_api_key))

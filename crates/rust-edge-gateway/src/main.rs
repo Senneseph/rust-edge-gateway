@@ -20,6 +20,8 @@ mod services;
 mod runtime;  // New: Actor-based runtime
 mod handlers; // Built-in handlers for services
 mod admin_auth; // New: Admin authentication
+mod rate_limit; // Rate limiting for authentication
+mod session; // Session management for admin UI
 
 use anyhow::Result;
 use axum::{
@@ -44,7 +46,7 @@ use crate::runtime::{
     HandlerRegistry,
     context::{RuntimeConfig, ContextBuilder},
 };
-use crate::admin_auth::{admin_auth, create_admin_auth_router};
+use crate::admin_auth::{admin_auth, create_admin_auth_router, create_protected_admin_routes};
 
 /// Shared application state
 pub struct AppState {
@@ -56,6 +58,13 @@ pub struct AppState {
     pub runtime_services: RwLock<RuntimeServices>,
     pub handler_registry: HandlerRegistry,
     pub runtime_config: Arc<RuntimeConfig>,
+
+    // Rate limiters for authentication
+    pub login_rate_limiter: Arc<rate_limit::RateLimiter>,
+    pub api_key_rate_limiter: Arc<rate_limit::RateLimiter>,
+
+    // Session store for admin UI
+    pub session_store: Arc<session::SessionStore>,
 }
 
 impl AppState {
@@ -127,6 +136,23 @@ async fn main() -> Result<()> {
     
     tracing::info!("Runtime initialized (v2 actor-based services ready)");
 
+    // Initialize rate limiters
+    // Login: 5 attempts per 15 minutes
+    let login_rate_limiter = Arc::new(rate_limit::RateLimiter::new(
+        5,
+        std::time::Duration::from_secs(15 * 60),
+    ));
+    // API key validation: 100 attempts per minute (more lenient for legitimate API usage)
+    let api_key_rate_limiter = Arc::new(rate_limit::RateLimiter::new(
+        100,
+        std::time::Duration::from_secs(60),
+    ));
+
+    // Session store: 24 hour session duration
+    let session_store = Arc::new(session::SessionStore::new(
+        std::time::Duration::from_secs(24 * 60 * 60),
+    ));
+
     // Create shared state
     let state = Arc::new(AppState {
         config: config.clone(),
@@ -135,6 +161,9 @@ async fn main() -> Result<()> {
         runtime_services: RwLock::new(runtime_services),
         handler_registry,
         runtime_config,
+        login_rate_limiter,
+        api_key_rate_limiter,
+        session_store,
     });
 
     // Build admin API router
@@ -187,12 +216,21 @@ async fn main() -> Result<()> {
     // Create protected admin API router with authentication middleware
     let protected_admin_api = admin_api.layer(axum::middleware::from_fn_with_state(state.clone(), admin_auth));
 
+    // Create protected admin routes (API keys management) with session authentication middleware
+    let protected_admin_routes = create_protected_admin_routes()
+        .layer(axum::middleware::from_fn_with_state(state.clone(), session::session_auth));
+
+    // Create protected static file service for admin UI
+    let protected_static = Router::new()
+        .fallback_service(ServeDir::new(&config.static_dir))
+        .layer(axum::middleware::from_fn_with_state(state.clone(), session::session_auth));
+
     // Build admin router (serves static files + API)
     let admin_router = Router::new()
         .nest("/api", protected_admin_api)
-        .nest("/auth", create_admin_auth_router()) // Login and password change routes (no auth middleware)
-        .layer(axum::middleware::from_fn_with_state(state.clone(), admin_auth))
-        .fallback_service(ServeDir::new(&config.static_dir));
+        .nest("/auth", create_admin_auth_router()) // Public auth routes (login, password change)
+        .nest("/admin", protected_admin_routes) // Protected admin routes (API keys)
+        .fallback_service(protected_static.into_service());
 
     // Build main gateway router
     let gateway_router = router::create_gateway_router(state.clone());
