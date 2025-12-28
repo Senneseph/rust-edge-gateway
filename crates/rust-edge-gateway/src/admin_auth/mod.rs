@@ -39,7 +39,7 @@ pub use middleware::{admin_auth, api_key_auth};
 // Re-export handlers
 pub use api_keys::{create_api_key, list_api_keys};
 pub use api_keys_actions::{delete_api_key, disable_api_key, enable_api_key};
-pub use handlers::{change_password, get_recaptcha_site_key, login, logout};
+pub use handlers::{admin_login_page, change_password, get_recaptcha_site_key, login, login_page, logout};
 
 // Re-export router creation functions
 pub use routes::{create_admin_auth_router, create_protected_admin_routes};

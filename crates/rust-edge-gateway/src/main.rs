@@ -46,7 +46,7 @@ use crate::runtime::{
     context::{RuntimeConfig, ContextBuilder},
 };
 use crate::admin_auth::{
-    create_admin_auth_router, endpoints_api_key_auth, services_api_key_auth,
+    admin_login_page, create_admin_auth_router, endpoints_api_key_auth, services_api_key_auth,
     domains_api_key_auth, collections_api_key_auth, get_recaptcha_site_key,
 };
 
@@ -232,15 +232,18 @@ async fn main() -> Result<()> {
 
     // Build admin router (serves static files + API)
     // All API access is now under /api with proper sub-paths
+    tracing::info!("Building admin router");
     let admin_router = Router::new()
-        .nest("/api/endpoints", endpoints_api)      // API key auth: endpoints:*
-        .nest("/api/services", services_api)        // API key auth: services:*
-        .nest("/api/domains", domains_api)          // API key auth: domains:*
-        .nest("/api/collections", collections_api)  // API key auth: collections:*
-        .nest("/api/admin", admin_api)              // Session auth: Admin UI only
-        .nest("/api", public_api)                   // Public: health check
-        .nest("/auth", create_admin_auth_router())  // Public auth routes (login, password change)
+        .route("/admin/login", get(admin_login_page))  // Public login page - no authentication required
+        .nest("/auth", create_admin_auth_router())    // Public auth routes (login, password change)
+        .nest("/api/endpoints", endpoints_api)        // API key auth: endpoints:*
+        .nest("/api/services", services_api)          // API key auth: services:*
+        .nest("/api/domains", domains_api)            // API key auth: domains:*
+        .nest("/api/collections", collections_api)    // API key auth: collections:*
+        .nest("/api/admin", admin_api)                // Session auth: Admin UI only
+        .nest("/api", public_api)                     // Public: health check
         .fallback_service(protected_static.into_service());
+    tracing::info!("Admin router built successfully");
 
     // Build main gateway router
     let gateway_router = router::create_gateway_router(state.clone());

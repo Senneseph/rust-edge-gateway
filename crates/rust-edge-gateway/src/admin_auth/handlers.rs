@@ -5,6 +5,8 @@ use axum::{
     http::{header, StatusCode},
     response::IntoResponse,
 };
+use std::path::PathBuf;
+use tower_http::services::ServeFile;
 use bcrypt::verify;
 use std::sync::Arc;
 use tracing::info;
@@ -18,28 +20,96 @@ use super::types::{
     ChangePasswordData, LoginData, LoginResponse, PasswordChangeResponse,
 };
 
+/// Handler for serving the admin login page (GET request) - no authentication required
+pub async fn admin_login_page(
+    State(state): State<Arc<AppState>>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    tracing::info!("Serving admin login page");
+    
+    // Construct path to the admin login HTML file
+    let mut login_html_path = PathBuf::from(&state.config.static_dir);
+    login_html_path.push("admin");
+    login_html_path.push("login.html");
+    
+    // Read the HTML file
+    let html_content = match std::fs::read_to_string(login_html_path) {
+        Ok(content) => content,
+        Err(e) => {
+            tracing::error!("Failed to read admin login.html: {}", e);
+            return Err((StatusCode::INTERNAL_SERVER_ERROR, "Failed to load login page".to_string()));
+        }
+    };
+    
+    Ok((
+        [(header::CONTENT_TYPE, "text/html")],
+        html_content
+    ))
+}
+
+/// Handler for serving the login page (GET request)
+pub async fn login_page(
+    State(state): State<Arc<AppState>>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    tracing::info!("Serving login page");
+    
+    // Construct path to the login HTML file
+    let mut login_html_path = PathBuf::from(&state.config.static_dir);
+    login_html_path.push("auth");
+    login_html_path.push("login.html");
+    
+    // Read the HTML file
+    let html_content = match std::fs::read_to_string(login_html_path) {
+        Ok(content) => content,
+        Err(e) => {
+            tracing::error!("Failed to read login.html: {}", e);
+            return Err((StatusCode::INTERNAL_SERVER_ERROR, "Failed to load login page".to_string()));
+        }
+    };
+    
+    Ok((
+        [(header::CONTENT_TYPE, "text/html")],
+        html_content
+    ))
+}
+
 /// Handler for login POST request
 pub async fn login(
     State(state): State<Arc<AppState>>,
     axum::extract::Json(login_data): axum::extract::Json<LoginData>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
+    tracing::info!("Login handler called for username: {}", login_data.username);
+    
     // Validate reCAPTCHA token first
     if let Some(recaptcha_secret_key) = &state.config.recaptcha_secret_key {
+        tracing::info!("Verifying reCAPTCHA token: {}", login_data.recaptcha_token);
+        
+        // Check if token is empty
+        if login_data.recaptcha_token.is_empty() {
+            tracing::error!("Empty reCAPTCHA token received");
+            return Err((
+                StatusCode::BAD_REQUEST,
+                "reCAPTCHA verification failed: empty token".to_string(),
+            ));
+        }
+        
         if !verify_recaptcha_token(recaptcha_secret_key, &login_data.recaptcha_token, "login")
             .await
             .map_err(|e| {
+                tracing::error!("reCAPTCHA verification error: {}", e);
                 (
                     StatusCode::BAD_REQUEST,
                     format!("reCAPTCHA verification failed: {}", e),
                 )
             })?
         {
+            tracing::warn!("reCAPTCHA verification failed for valid token check");
             return Err((
                 StatusCode::BAD_REQUEST,
                 "reCAPTCHA verification failed".to_string(),
             ));
         }
     } else {
+        tracing::error!("reCAPTCHA not configured");
         return Err((
             StatusCode::INTERNAL_SERVER_ERROR,
             "reCAPTCHA not configured".to_string(),
@@ -208,4 +278,3 @@ pub async fn get_recaptcha_site_key(
         data: serde_json::Value::String(site_key),
     }))
 }
-

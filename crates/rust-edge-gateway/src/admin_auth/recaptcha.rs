@@ -24,7 +24,18 @@ pub async fn verify_recaptcha_token(
         .map_err(|e| format!("Failed to parse reCAPTCHA response: {}", e))?;
 
     if !json["success"].as_bool().unwrap_or(false) {
-        return Err("reCAPTCHA verification failed".to_string());
+        // Extract error codes from Google's response for better debugging
+        if let Some(error_codes) = json["error-codes"].as_array() {
+            let error_messages: Vec<String> = error_codes
+                .iter()
+                .filter_map(|v| v.as_str())
+                .map(|s| s.to_string())
+                .collect();
+            if !error_messages.is_empty() {
+                return Err(format!("reCAPTCHA verification failed: {}", error_messages.join(", ")));
+            }
+        }
+        return Err("reCAPTCHA verification failed: unknown error".to_string());
     }
 
     // Check if the action matches (optional but recommended)

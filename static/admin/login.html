@@ -42,7 +42,7 @@
 
         async function initRecaptcha() {
             try {
-                const response = await fetch('/api/admin/recaptcha-site-key');
+                const response = await fetch('/auth/recaptcha-site-key');
                 const data = await response.json();
                 if (data.success && data.data) {
                     recaptchaSiteKey = data.data;

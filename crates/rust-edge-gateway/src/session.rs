@@ -115,11 +115,16 @@ pub async fn session_auth(
     request: Request,
     next: Next,
 ) -> Response {
+    let path = request.uri().path();
+    let method = request.method();
+    tracing::info!("Session auth middleware called for {} {}", method, path);
+    
     // Extract session ID from cookie
     let session_id = match extract_session_id(&request) {
         Some(id) => id,
         None => {
             // No session cookie - redirect to login
+            tracing::warn!("No session cookie found for {} {}, redirecting to login", method, path);
             return redirect_to_login();
         }
     };

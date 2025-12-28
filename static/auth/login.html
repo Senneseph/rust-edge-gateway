@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Admin Login - Rust Edge Gateway</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        /* Mondrian-inspired color palette */
+        :root {
+            --primary-red: #D41919;
+            --primary-blue: #2A48EC;
+            --primary-yellow: #F6D02B;
+            --neutral-white: #FFFFFF;
+            --neutral-black: #000000;
+            --neutral-gray: #F5F5F5;
+        }
+        
+        body {
+            font-family: 'Arial', 'Helvetica', sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: var(--neutral-gray);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            color: var(--neutral-black);
+        }
+        
+        .login-container {
+            width: 90%;
+            max-width: 1200px;
+            height: 600px;
+            position: relative;
+            background-color: var(--neutral-white);
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+        }
+        
+        /* Mondrian-style grid layout */
+        .mondrian-grid {
+            display: grid;
+            grid-template-columns: 1fr 2fr 1fr;
+            grid-template-rows: 1fr 2fr 1fr;
+            height: 100%;
+            gap: 8px;
+            padding: 8px;
+        }
+        
+        /* Large red block for login form */
+        .login-block {
+            grid-column: 2;
+            grid-row: 2;
+            background-color: var(--primary-red);
+            padding: 40px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            position: relative;
+        }
+        
+        /* Blue header block */
+        .header-block {
+            grid-column: 1 / span 3;
+            grid-row: 1;
+            background-color: var(--primary-blue);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        
+        /* Yellow footer block */
+        .footer-block {
+            grid-column: 1 / span 3;
+            grid-row: 3;
+            background-color: var(--primary-yellow);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        
+        /* White side blocks */
+        .side-block {
+            background-color: var(--neutral-white);
+        }
+        
+        .header-block h1, .footer-block h2 {
+            color: var(--neutral-white);
+            margin: 0;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
+        }
+        
+        .header-block h1 {
+            font-size: 2.5rem;
+            font-weight: 800;
+            letter-spacing: 1px;
+        }
+        
+        .footer-block h2 {
+            font-size: 1.2rem;
+            font-weight: 400;
+        }
+        
+        .login-form {
+            background-color: var(--neutral-white);
+            padding: 30px;
+            border-radius: 0;
+            width: 100%;
+            max-width: 350px;
+            margin: 0 auto;
+        }
+        
+        .login-form h2 {
+            color: var(--primary-red);
+            margin-top: 0;
+            margin-bottom: 25px;
+            font-size: 1.8rem;
+            font-weight: 700;
+        }
+        
+        .form-group {
+            margin-bottom: 20px;
+        }
+        
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: var(--neutral-black);
+        }
+        
+        .form-group input {
+            width: 100%;
+            padding: 12px;
+            border: 3px solid var(--neutral-black);
+            border-radius: 0;
+            font-size: 1rem;
+            box-sizing: border-box;
+            background-color: var(--neutral-white);
+        }
+        
+        .form-group input:focus {
+            outline: none;
+            border-color: var(--primary-red);
+        }
+        
+        button {
+            width: 100%;
+            padding: 15px;
+            background-color: var(--neutral-black);
+            color: var(--neutral-white);
+            border: none;
+            font-size: 1.1rem;
+            font-weight: 700;
+            cursor: pointer;
+            border-radius: 0;
+            margin-top: 10px;
+            transition: background-color 0.3s;
+        }
+        
+        button:hover {
+            background-color: var(--primary-red);
+        }
+        
+        .recaptcha-info {
+            font-size: 0.75rem;
+            color: var(--neutral-black);
+            text-align: center;
+            margin-top: 20px;
+            line-height: 1.4;
+        }
+        
+        .recaptcha-info a {
+            color: var(--neutral-black);
+            text-decoration: underline;
+        }
+        
+        .error-message {
+            color: var(--neutral-white);
+            background-color: var(--neutral-black);
+            padding: 10px;
+            margin-bottom: 15px;
+            text-align: center;
+            font-weight: 600;
+        }
+        
+        /* Thick black borders - Mondrian signature */
+        .mondrian-border {
+            position: absolute;
+            background-color: var(--neutral-black);
+        }
+        
+        .border-top {
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 12px;
+        }
+        
+        .border-left {
+            top: 0;
+            left: 0;
+            bottom: 0;
+            width: 12px;
+        }
+        
+        .border-right {
+            top: 0;
+            right: 0;
+            bottom: 0;
+            width: 12px;
+        }
+        
+        .border-bottom {
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 12px;
+        }
+        
+        /* Responsive adjustments */
+        @media (max-width: 768px) {
+            .mondrian-grid {
+                grid-template-columns: 1fr;
+                grid-template-rows: auto 1fr auto;
+            }
+            
+            .login-block {
+                grid-column: 1;
+                grid-row: 2;
+                height: auto;
+                min-height: 400px;
+            }
+            
+            .login-container {
+                height: auto;
+                min-height: 80vh;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="login-container">
+        <div class="mondrian-border border-top"></div>
+        <div class="mondrian-border border-left"></div>
+        <div class="mondrian-border border-right"></div>
+        <div class="mondrian-border border-bottom"></div>
+        
+        <div class="mondrian-grid">
+            <div class="header-block">
+                <h1>RUST EDGE GATEWAY</h1>
+            </div>
+            
+            <div class="side-block"></div>
+            <div class="login-block">
+                <div class="login-form">
+                    <h2>ADMIN LOGIN</h2>
+                    <div id="error" class="error-message" style="display: none;"></div>
+                    <form id="loginForm">
+                        <div class="form-group">
+                            <label for="username">USERNAME</label>
+                            <input type="text" id="username" name="username" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="password">PASSWORD</label>
+                            <input type="password" id="password" name="password" required>
+                        </div>
+                        <button type="submit">LOGIN</button>
+                    </form>
+                    <div class="recaptcha-info">
+                        This site is protected by reCAPTCHA and the Google<br>
+                        <a href="https://policies.google.com/privacy">Privacy Policy</a> and
+                        <a href="https://policies.google.com/terms">Terms of Service</a> apply.
+                    </div>
+                </div>
+            </div>
+            <div class="side-block"></div>
+            
+            <div class="footer-block">
+                <h2>SECURE ADMINISTRATION INTERFACE</h2>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        // Get reCAPTCHA site key from API
+        let recaptchaSiteKey = null;
+        let recaptchaToken = null;
+        
+        async function initRecaptcha() {
+            try {
+                const response = await fetch('/auth/recaptcha-site-key');
+                const data = await response.json();
+                if (data.success && data.data) {
+                    recaptchaSiteKey = data.data;
+                    // Load reCAPTCHA script
+                    const script = document.createElement('script');
+                    script.src = `https://www.google.com/recaptcha/api.js?render=${recaptchaSiteKey}`;
+                    script.onload = () => {
+                        grecaptcha.ready(function() {
+                            grecaptcha.execute(recaptchaSiteKey, {action: 'login'}).then(function(token) {
+                                recaptchaToken = token;
+                            });
+                        });
+                    };
+                    document.head.appendChild(script);
+                }
+            } catch (e) {
+                console.error('Failed to load reCAPTCHA config:', e);
+            }
+        }
+        
+        initRecaptcha();
+        
+        document.getElementById('loginForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const username = document.getElementById('username').value;
+            const password = document.getElementById('password').value;
+            const errorElement = document.getElementById('error');
+            
+            // Regenerate reCAPTCHA token just before submission to ensure it's fresh
+            if (recaptchaSiteKey) {
+                try {
+                    recaptchaToken = await grecaptcha.execute(recaptchaSiteKey, {action: 'login'});
+                } catch (error) {
+                    console.error('Failed to generate reCAPTCHA token:', error);
+                    errorElement.textContent = 'reCAPTCHA verification failed. Please try again.';
+                    errorElement.style.display = 'block';
+                    return;
+                }
+            }
+            
+            if (!recaptchaToken) {
+                errorElement.textContent = 'reCAPTCHA verification failed. Please try again.';
+                errorElement.style.display = 'block';
+                return;
+            }
+            
+            try {
+                const response = await fetch('/auth/login', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ username, password, recaptcha_token: recaptchaToken })
+                });
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data.requires_password_change) {
+                        window.location.href = '/admin/change-password.html';
+                    } else {
+                        window.location.href = '/admin/';
+                    }
+                } else {
+                    const error = await response.text();
+                    errorElement.textContent = 'Login failed: ' + error;
+                    errorElement.style.display = 'block';
+                    
+                    // Reset reCAPTCHA token for next attempt
+                    if (recaptchaSiteKey) {
+                        grecaptcha.ready(function() {
+                            grecaptcha.execute(recaptchaSiteKey, {action: 'login'}).then(function(token) {
+                                recaptchaToken = token;
+                            });
+                        });
+                    }
+                }
+            } catch (error) {
+                errorElement.textContent = 'Network error: ' + error.message;
+                errorElement.style.display = 'block';
+            }
+        });
+    </script>
+</body>
+</html>

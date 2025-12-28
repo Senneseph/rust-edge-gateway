@@ -7,6 +7,11 @@
         reverse_proxy rust-edge-gateway:8081
     }
     
+    # Authentication endpoints
+    handle /auth/* {
+        reverse_proxy rust-edge-gateway:8081
+    }
+    
     # API endpoints for admin
     handle /api/* {
         reverse_proxy rust-edge-gateway:8081
