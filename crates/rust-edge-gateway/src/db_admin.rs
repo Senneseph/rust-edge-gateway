@@ -147,6 +147,11 @@ impl AdminDatabase {
     /// Create a new API key
     pub fn create_api_key(&self, label: &str, created_by: &str, permissions: Vec<String>, expires_days: i32) -> Result<ApiKey> {
         let key = uuid::Uuid::new_v4().to_string();
+        self.create_api_key_with_value(&key, label, created_by, permissions, expires_days)
+    }
+
+    /// Create an API key with a specific key value (for bootstrapping from env)
+    pub fn create_api_key_with_value(&self, key: &str, label: &str, created_by: &str, permissions: Vec<String>, expires_days: i32) -> Result<ApiKey> {
         let id = uuid::Uuid::new_v4().to_string();
 
         let permissions_json = serde_json::to_string(&permissions).unwrap_or_default();
@@ -174,7 +179,7 @@ impl AdminDatabase {
 
         Ok(ApiKey {
             id,
-            key,
+            key: key.to_string(),
             label: label.to_string(),
             created_by: created_by.to_string(),
             created_at,

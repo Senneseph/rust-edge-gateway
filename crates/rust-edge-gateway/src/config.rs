@@ -24,6 +24,10 @@ pub struct AppConfig {
     /// API key for admin authentication (simple auth for MVP)
     pub admin_api_key: Option<String>,
 
+    /// Bootstrap API key to create on startup if it doesn't exist
+    /// This allows setting an API key via environment variable
+    pub bootstrap_api_key: Option<String>,
+
     /// Default admin password for initial setup
     pub default_admin_password: Option<String>,
 
@@ -67,6 +71,9 @@ impl AppConfig {
                 .unwrap_or(8081),
 
             admin_api_key: env::var("RUST_EDGE_GATEWAY_ADMIN_API_KEY").ok(),
+
+            // Bootstrap API key - will be created on startup with full permissions
+            bootstrap_api_key: env::var("RUST_EDGE_GATEWAY_API_KEY").ok(),
 
             handler_timeout_secs: env::var("RUST_EDGE_GATEWAY_HANDLER_TIMEOUT_SECS")
                 .ok()

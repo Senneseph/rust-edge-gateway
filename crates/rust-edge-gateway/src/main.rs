@@ -46,7 +46,7 @@ use crate::runtime::{
 };
 use rust_edge_gateway_sdk::Context as SdkContext;
 
-use crate::admin_auth::{create_admin_auth_router, endpoints_api_key_auth, services_api_key_auth, domains_api_key_auth, collections_api_key_auth, get_recaptcha_site_key, admin_login_page};
+use crate::admin_auth::{create_admin_auth_router, endpoints_api_key_auth, services_api_key_auth, admin_login_page};
 
 /// Shared application state
 pub struct AppState {
@@ -203,18 +203,20 @@ async fn main() -> Result<()> {
         .route("/{id}/deactivate", post(api::deactivate_service))
         .layer(axum::middleware::from_fn_with_state(state.clone(), services_api_key_auth));
 
-    // Domains API - protected by API key with domains:* permissions
+    // Domains API - protected by API key with endpoints:* permissions
+    // Domains are organizational containers for endpoints, so they use endpoint permissions
     let domains_api = Router::new()
         .route("/", get(api::list_domains).post(api::create_domain))
         .route("/{id}", get(api::get_domain).put(api::update_domain).delete(api::delete_domain))
         .route("/{id}/collections", get(api::list_domain_collections))
-        .layer(axum::middleware::from_fn_with_state(state.clone(), domains_api_key_auth));
+        .layer(axum::middleware::from_fn_with_state(state.clone(), endpoints_api_key_auth));
 
-    // Collections API - protected by API key with collections:* permissions
+    // Collections API - protected by API key with endpoints:* permissions
+    // Collections are organizational containers for endpoints, so they use endpoint permissions
     let collections_api = Router::new()
         .route("/", get(api::list_collections).post(api::create_collection))
         .route("/{id}", get(api::get_collection).put(api::update_collection).delete(api::delete_collection))
-        .layer(axum::middleware::from_fn_with_state(state.clone(), collections_api_key_auth));
+        .layer(axum::middleware::from_fn_with_state(state.clone(), endpoints_api_key_auth));
 
     // Imports API - protected by API key with endpoints:write permission
     let imports_api = Router::new()
