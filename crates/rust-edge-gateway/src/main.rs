@@ -45,10 +45,8 @@ use crate::runtime::{
     HandlerRegistry,
     context::{RuntimeConfig, ContextBuilder},
 };
-use crate::admin_auth::{
-    admin_login_page, create_admin_auth_router, endpoints_api_key_auth, services_api_key_auth,
-    domains_api_key_auth, collections_api_key_auth, get_recaptcha_site_key,
-};
+
+use crate::admin_auth::{create_admin_auth_router, endpoints_api_key_auth, services_api_key_auth, domains_api_key_auth, collections_api_key_auth, get_recaptcha_site_key, imports_api_key_auth};
 
 /// Shared application state
 pub struct AppState {
@@ -204,6 +202,12 @@ async fn main() -> Result<()> {
         .route("/{id}", get(api::get_collection).put(api::update_collection).delete(api::delete_collection))
         .layer(axum::middleware::from_fn_with_state(state.clone(), collections_api_key_auth));
 
+    // Imports API - protected by API key with import:* or (endpoints:write + services:write)
+    let imports_api = Router::new()
+        .route("/openapi", post(api::import_openapi))
+        .route("/bundle", post(api::import_bundle))
+        .layer(axum::middleware::from_fn_with_state(state.clone(), imports_api_key_auth));
+
     // Admin API - protected by session authentication (for Admin UI only)
     // This includes API key management and system operations
     let admin_api = Router::new()
@@ -216,7 +220,7 @@ async fn main() -> Result<()> {
         .route("/recaptcha-site-key", get(admin_auth::get_recaptcha_site_key))
         // System stats and health (also available to admin UI)
         .route("/stats", get(api::get_stats))
-        // Import operations (admin only - creates endpoints/services)
+        // Import operations (session auth for Admin UI - API key auth available at /api/import/*)
         .route("/import/openapi", post(api::import_openapi))
         .route("/import/bundle", post(api::import_bundle))
         .layer(axum::middleware::from_fn_with_state(state.clone(), session::session_auth));
@@ -240,6 +244,7 @@ async fn main() -> Result<()> {
         .nest("/api/services", services_api)          // API key auth: services:*
         .nest("/api/domains", domains_api)            // API key auth: domains:*
         .nest("/api/collections", collections_api)    // API key auth: collections:*
+        .nest("/api/import", imports_api)           // API key auth: import:* or (endpoints:write + services:write)
         .nest("/api/admin", admin_api)                // Session auth: Admin UI only
         .nest("/api", public_api)                     // Public: health check
         .fallback_service(protected_static.into_service());

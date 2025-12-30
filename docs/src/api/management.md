@@ -230,12 +230,25 @@ Handler files are matched to OpenAPI operations by normalizing names:
 }
 ```
 
-**Example with curl:**
+**Example with curl (API Key Authentication):**
 
 ```bash
 curl -X POST "http://localhost:8081/api/import/bundle?domain=api.example.com&create_collection=true&domain_id=abc123&compile=true&start=true" \
+  -H "Authorization: Bearer YOUR_API_KEY" \
   -F "bundle=@my-api.zip"
 ```
+
+**Example with curl (Session Authentication - Admin UI):**
+
+```bash
+curl -X POST "http://localhost:8081/api/admin/import/bundle?domain=api.example.com&create_collection=true&domain_id=abc123&compile=true&start=true" \
+  -H "Cookie: session_id=YOUR_SESSION_ID" \
+  -F "bundle=@my-api.zip"
+```
+
+**Note:** Import endpoints are available at two paths:
+- `/api/import/*` - Requires API key with `import:write`, `import:*`, or both `endpoints:write` and `services:write` permissions
+- `/api/admin/import/*` - Requires session authentication (for Admin UI)
 
 ## Common Patterns
 

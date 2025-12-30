@@ -65,7 +65,9 @@ function app() {
             'services:delete',
             'api-keys:read',
             'api-keys:write',
-            'api-keys:delete'
+            'api-keys:delete',
+            'import:read',
+            'import:write'
         ],
 
         // API Key Modal States
