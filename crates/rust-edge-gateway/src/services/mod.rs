@@ -69,9 +69,14 @@ impl Default for ServiceRegistry {
 }
 
 /// Create a service connector from config
-pub fn create_connector(service_type: ServiceType, config: &Value) -> Result<Arc<dyn ServiceConnector>> {
-    match service_type {
-
-    }
+///
+/// NOTE: Per the Service Provider Architecture, connectors should be dynamically
+/// loaded rather than baked into the gateway. This function returns an error
+/// indicating the service type is not yet implemented.
+pub fn create_connector(service_type: ServiceType, _config: &Value) -> Result<Arc<dyn ServiceConnector>> {
+    anyhow::bail!(
+        "Service type {:?} is not yet implemented. Service Providers should be loaded dynamically.",
+        service_type
+    )
 }
 

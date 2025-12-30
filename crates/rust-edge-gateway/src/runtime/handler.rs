@@ -3,6 +3,18 @@
 //! Loads handler functions from dynamic libraries (.so/.dll) at runtime.
 //! Supports hot-swapping handlers without gateway restart.
 //! Provides graceful draining for zero-downtime deployments.
+//!
+//! # Architecture
+//!
+//! Handlers are compiled against the SDK which defines the Context type.
+//! The gateway provides implementations of SDK service traits (MinioClient,
+//! SqliteClient) that use message-passing to communicate with service actors.
+//!
+//! When a handler is called:
+//! 1. Gateway creates an SDK Context with bridge implementations
+//! 2. Handler receives the SDK Context and calls service methods
+//! 3. Bridge implementations send messages to service actors
+//! 4. Service actors process requests and return responses
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -16,20 +28,24 @@ use libloading::{Library, Symbol};
 use tokio::sync::RwLock;
 use anyhow::{anyhow, Result};
 
-use rust_edge_gateway_sdk::{Request, Response};
-use super::context::Context;
+use rust_edge_gateway_sdk::{Request, Response, Context as SdkContext};
+use super::context::Context as RuntimeContext;
 
 /// Type alias for the handler entry point function
 ///
 /// All handlers must export a function with this signature:
 /// ```ignore
 /// #[no_mangle]
-/// pub extern "C" fn handler_entry(req: Request) -> Response
+/// pub extern "C" fn handler_entry(ctx: &Context, req: Request) -> Response
 /// ```
 ///
 /// This is a synchronous signature for simplicity. Handlers that need async
 /// operations should use tokio's block_on or similar.
-pub type HandlerFn = unsafe extern "C" fn(Request) -> Response;
+///
+/// The Context is the SDK's Context type, which provides access to service
+/// providers via trait objects. The gateway creates an SDK Context populated
+/// with bridge implementations that communicate with service actors.
+pub type HandlerFn = unsafe extern "C" fn(&SdkContext, Request) -> Response;
 
 /// A loaded handler with its library
 pub struct LoadedHandler {
@@ -116,9 +132,9 @@ impl LoadedHandler {
     ///
     /// # Safety
     /// Calls into dynamically loaded code. The handler must be well-behaved.
-    pub fn execute(&self, _ctx: &Context, req: Request) -> Response {
-        // Call the handler entry point (synchronous)
-        unsafe { (self.entry)(req) }
+    pub fn execute(&self, ctx: &SdkContext, req: Request) -> Response {
+        // Call the handler entry point with SDK Context
+        unsafe { (self.entry)(ctx, req) }
     }
 
     /// Increment active request count and return a guard
@@ -413,7 +429,7 @@ impl HandlerRegistry {
     pub async fn execute(
         &self,
         endpoint_id: &str,
-        ctx: &Context,
+        ctx: &SdkContext,
         req: Request,
     ) -> Result<Response> {
         let handler = self.get(endpoint_id).await
@@ -430,7 +446,7 @@ impl HandlerRegistry {
     pub async fn execute_with_timeout(
         &self,
         endpoint_id: &str,
-        _ctx: &Context,
+        ctx: &SdkContext,
         req: Request,
         timeout: Duration,
     ) -> Result<Response> {
@@ -444,10 +460,13 @@ impl HandlerRegistry {
         // Get the entry function pointer (Copy/Send safe)
         let entry = handler.entry;
 
+        // Clone context for spawn_blocking (SDK Context is Clone + Send)
+        let ctx = ctx.clone();
+
         // Wrap sync execution in spawn_blocking for timeout support
         let future = tokio::task::spawn_blocking(move || {
             // Safety: entry is from a loaded library that remains alive
-            unsafe { entry(req) }
+            unsafe { entry(&ctx, req) }
         });
 
         match tokio::time::timeout(timeout, future).await {
@@ -535,7 +554,7 @@ fn format_library_name(endpoint_id: &str) -> String {
 /// Fallback handler that can be used when dynamic loading is not available
 /// or for testing purposes
 pub struct FallbackHandler {
-    handlers: RwLock<HashMap<String, Arc<dyn Fn(&Context, Request) -> Pin<Box<dyn Future<Output = Response> + Send>> + Send + Sync>>>,
+    handlers: RwLock<HashMap<String, Arc<dyn Fn(&SdkContext, Request) -> Pin<Box<dyn Future<Output = Response> + Send>> + Send + Sync>>>,
 }
 
 impl FallbackHandler {
@@ -544,27 +563,27 @@ impl FallbackHandler {
             handlers: RwLock::new(HashMap::new()),
         }
     }
-    
+
     /// Register a handler function
     pub async fn register<F, Fut>(&self, endpoint_id: &str, handler: F)
     where
-        F: Fn(&Context, Request) -> Fut + Send + Sync + 'static,
+        F: Fn(&SdkContext, Request) -> Fut + Send + Sync + 'static,
         Fut: Future<Output = Response> + Send + 'static,
     {
-        let wrapper = Arc::new(move |ctx: &Context, req: Request| -> Pin<Box<dyn Future<Output = Response> + Send>> {
+        let wrapper = Arc::new(move |ctx: &SdkContext, req: Request| -> Pin<Box<dyn Future<Output = Response> + Send>> {
             Box::pin(handler(ctx, req))
         });
-        
+
         let mut handlers = self.handlers.write().await;
         handlers.insert(endpoint_id.to_string(), wrapper);
     }
-    
+
     /// Execute a registered handler
-    pub async fn execute(&self, endpoint_id: &str, ctx: &Context, req: Request) -> Result<Response> {
+    pub async fn execute(&self, endpoint_id: &str, ctx: &SdkContext, req: Request) -> Result<Response> {
         let handlers = self.handlers.read().await;
         let handler = handlers.get(endpoint_id)
             .ok_or_else(|| anyhow!("Handler not registered: {}", endpoint_id))?;
-        
+
         Ok(handler(ctx, req).await)
     }
 }

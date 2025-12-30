@@ -13,7 +13,7 @@ RUN apt-get update && apt-get install -y \
 
 WORKDIR /build
 COPY . .
-RUN cargo build --release --bin rust-edge-gateway
+RUN cargo build -j 16 --release --bin rust-edge-gateway
 
 # =============================================================================
 # Stage 2: Runtime image with Rust toolchain for handler compilation

@@ -20,6 +20,7 @@ mod runtime;  // New: Actor-based runtime
 mod admin_auth; // New: Admin authentication
 mod rate_limit; // Rate limiting for authentication
 mod session; // Session management for admin UI
+mod services; // Service connectors
 
 use anyhow::Result;
 use axum::{
@@ -39,13 +40,13 @@ use crate::config::AppConfig;
 use crate::db::Database;
 use crate::worker::WorkerManager;
 use crate::runtime::{
-    Context,
     Services as RuntimeServices,
     HandlerRegistry,
-    context::{RuntimeConfig, ContextBuilder},
+    context::RuntimeConfig,
 };
+use rust_edge_gateway_sdk::Context as SdkContext;
 
-use crate::admin_auth::{create_admin_auth_router, endpoints_api_key_auth, services_api_key_auth, domains_api_key_auth, collections_api_key_auth, get_recaptcha_site_key, imports_api_key_auth};
+use crate::admin_auth::{create_admin_auth_router, endpoints_api_key_auth, services_api_key_auth, domains_api_key_auth, collections_api_key_auth, get_recaptcha_site_key, admin_login_page};
 
 /// Shared application state
 pub struct AppState {
@@ -67,12 +68,26 @@ pub struct AppState {
 }
 
 impl AppState {
-    /// Create a Context for a request
-    pub async fn create_context(&self) -> Context {
-        let services = self.runtime_services.read().await.clone();
-        ContextBuilder::new(services)
-            .config(self.runtime_config.clone())
-            .build()
+    /// Create an SDK Context for a request
+    ///
+    /// This creates a Context that handlers receive, populated with
+    /// service provider bridges that communicate with service actors.
+    pub async fn create_sdk_context(&self) -> SdkContext {
+        let services = self.runtime_services.read().await;
+
+        // Create SDK Context with bridges to service actors
+        let mut ctx = SdkContext::new(uuid::Uuid::new_v4().to_string());
+
+        // Add MinIO bridge if service is active
+        if let Some(minio_handle) = &services.minio {
+            use crate::runtime::services::minio_bridge::MinioClientBridge;
+            ctx.minio = Some(std::sync::Arc::new(MinioClientBridge::new(minio_handle.clone())));
+        }
+
+        // TODO: Add SQLite bridge when implemented
+        // if let Some(sqlite_handle) = &services.sqlite { ... }
+
+        ctx
     }
 
     /// Update runtime services (e.g., when activating a new service actor)
@@ -201,11 +216,11 @@ async fn main() -> Result<()> {
         .route("/{id}", get(api::get_collection).put(api::update_collection).delete(api::delete_collection))
         .layer(axum::middleware::from_fn_with_state(state.clone(), collections_api_key_auth));
 
-    // Imports API - protected by API key with import:* or (endpoints:write + services:write)
+    // Imports API - protected by API key with endpoints:write permission
     let imports_api = Router::new()
         .route("/openapi", post(api::import_openapi))
         .route("/bundle", post(api::import_bundle))
-        .layer(axum::middleware::from_fn_with_state(state.clone(), imports_api_key_auth));
+        .layer(axum::middleware::from_fn_with_state(state.clone(), endpoints_api_key_auth));
 
     // Admin API - protected by session authentication (for Admin UI only)
     // This includes API key management and system operations

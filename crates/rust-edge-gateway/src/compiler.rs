@@ -100,33 +100,24 @@ fn json_deps_to_toml(deps: &serde_json::Value) -> String {
 ///
 /// The user's handler.rs should define a function like:
 /// ```ignore
-/// pub fn handle(ctx: &impl HandlerContext, req: Request) -> Response {
+/// use rust_edge_gateway_sdk::prelude::*;
+///
+/// pub fn handle(ctx: &Context, req: Request) -> Response {
 ///     Response::ok(json!({"message": "Hello!"}))
 /// }
 /// ```
 const LIB_RS_TEMPLATE: &str = r#"//! Auto-generated handler wrapper (v2 dynamic library)
 use rust_edge_gateway_sdk::prelude::*;
-use std::pin::Pin;
-use std::future::Future;
 
 mod handler;
 
 /// Entry point called by the gateway to handle requests.
 /// This is the v2 dynamic library interface.
+///
+/// Signature matches runtime HandlerFn: extern "C" fn(&Context, Request) -> Response
 #[no_mangle]
-pub extern "C" fn handler_entry<Ctx: HandlerContext>(
-    ctx: &Ctx,
-    req: Request,
-) -> Pin<Box<dyn Future<Output = Response> + Send + 'static>> {
-    // Clone what we need to make the future 'static
-    let req = req;
-    // We need to use unsafe to transmute the lifetime since the context
-    // is guaranteed to live for the duration of the handler call
-    let ctx_ptr = ctx as *const Ctx;
-    Box::pin(async move {
-        let ctx = unsafe { &*ctx_ptr };
-        handler::handle(ctx, req)
-    })
+pub extern "C" fn handler_entry(ctx: &Context, req: Request) -> Response {
+    handler::handle(ctx, req)
 }
 "#;
 
@@ -246,4 +237,3 @@ fn format_library_name(package_name: &str) -> String {
 fn format_library_name(package_name: &str) -> String {
     format!("lib{}.so", package_name)
 }
-

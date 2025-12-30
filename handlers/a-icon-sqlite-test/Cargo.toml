@@ -1,0 +1,20 @@
+[package]
+name = "handler_a_icon_sqlite_test"
+version = "0.1.0"
+edition = "2021"
+
+[workspace]
+
+[dependencies]
+rust-edge-gateway-sdk = { path = "../../crates/rust-edge-gateway-sdk", features = ["async"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["full"] }
+reqwest = { version = "0.11", features = ["json"] }
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

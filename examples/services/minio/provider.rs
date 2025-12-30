@@ -1,11 +1,25 @@
-//! MinIO/S3-compatible Object Storage Service Connector
+//! MinIO/S3-compatible Object Storage Service Provider
+//!
+//! This is an example Service Provider implementation that shows how to
+//! create a connector for MinIO/S3-compatible object storage.
+//!
+//! Service Providers are long-running actors that manage connections and
+//! expose a trait-based interface for Endpoint Handlers to use via Context.
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-use super::ServiceConnector;
-use crate::api::ServiceType;
+// Note: In actual usage, these would be imported from the gateway crate
+// use super::ServiceConnector;
+// use crate::api::ServiceType;
+
+/// Placeholder for ServiceConnector trait (defined in gateway)
+pub trait ServiceConnector {
+    fn service_type(&self) -> &'static str;
+    fn test_connection(&self) -> Result<()>;
+    fn connection_info(&self) -> Value;
+}
 
 /// MinIO connection configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -69,16 +83,16 @@ impl MinioConnector {
 }
 
 impl ServiceConnector for MinioConnector {
-    fn service_type(&self) -> ServiceType {
-        ServiceType::Minio
+    fn service_type(&self) -> &'static str {
+        "minio"
     }
-    
+
     fn test_connection(&self) -> Result<()> {
         // Would make a HEAD request to the endpoint
         // Placeholder for now
         Ok(())
     }
-    
+
     fn connection_info(&self) -> Value {
         json!({
             "type": "minio",

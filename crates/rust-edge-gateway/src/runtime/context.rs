@@ -5,13 +5,20 @@
 //! - Request metadata
 //! - Runtime configuration
 //!
-//! Handlers receive `&Context` and never need to manage connections themselves.
+//! There are two Context types:
+//! - **RuntimeContext** (this file): Gateway's internal context with Services, RuntimeHandle, etc.
+//! - **SdkContext** (SDK crate): What handlers receive, with trait objects for services.
+//!
+//! The gateway creates an SdkContext from RuntimeContext by wrapping service handles
+//! in bridge implementations that use message-passing to communicate with service actors.
 
 use std::sync::Arc;
 use uuid::Uuid;
 use serde::{Deserialize, Serialize};
 
+use rust_edge_gateway_sdk::Context as SdkContext;
 use super::services::Services;
+use super::services::minio_bridge::MinioClientBridge;
 
 /// Request identifier for tracing
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
