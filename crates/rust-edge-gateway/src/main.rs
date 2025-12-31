@@ -36,6 +36,7 @@ use tower_http::{
 };
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
   
+use crate::api::Endpoint;
 use crate::config::AppConfig;
 use crate::db::Database;
 use crate::worker::WorkerManager;
@@ -147,8 +148,30 @@ async fn main() -> Result<()> {
         max_body_size: 10 * 1024 * 1024, // 10MB
         debug: std::env::var("RUST_LOG").map(|v| v.contains("debug")).unwrap_or(false),
     });
-    
+
     tracing::info!("Runtime initialized (v2 actor-based services ready)");
+
+    // Reload previously compiled and enabled handlers on startup
+    let enabled_endpoints = db.list_endpoints()
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|ep| ep.compiled && ep.enabled)
+        .collect::<Vec<_>>();
+
+    if !enabled_endpoints.is_empty() {
+        tracing::info!("Reloading {} enabled handlers from previous session", enabled_endpoints.len());
+        for endpoint in enabled_endpoints {
+            match handler_registry.load(&endpoint.id).await {
+                Ok(_) => tracing::info!("Reloaded handler: {} ({})", endpoint.name, endpoint.id),
+                Err(e) => {
+                    tracing::warn!("Failed to reload handler {} ({}): {}. Marking as disabled.",
+                        endpoint.name, endpoint.id, e);
+                    // Mark endpoint as disabled if we can't load its handler
+                    let _ = db.update_endpoint(&Endpoint { enabled: false, ..endpoint });
+                }
+            }
+        }
+    }
 
     // Initialize rate limiters
     // Login: 5 attempts per 15 minutes
@@ -239,6 +262,26 @@ async fn main() -> Result<()> {
         // Import operations (session auth for Admin UI - API key auth available at /api/import/*)
         .route("/import/openapi", post(api::import_openapi))
         .route("/import/bundle", post(api::import_bundle))
+        // Endpoints management for Admin UI (session auth - API key auth available at /api/endpoints/*)
+        .route("/endpoints", get(api::list_endpoints).post(api::create_endpoint))
+        .route("/endpoints/{id}", get(api::get_endpoint).put(api::update_endpoint).delete(api::delete_endpoint))
+        .route("/endpoints/{id}/code", get(api::get_endpoint_code).put(api::update_endpoint_code))
+        .route("/endpoints/{id}/compile", post(api::compile_endpoint))
+        .route("/endpoints/{id}/start", post(api::start_endpoint))
+        .route("/endpoints/{id}/stop", post(api::stop_endpoint))
+        // Services management for Admin UI (session auth - API key auth available at /api/services/*)
+        .route("/services", get(api::list_services).post(api::create_service))
+        .route("/services/{id}", get(api::get_service).put(api::update_service).delete(api::delete_service))
+        .route("/services/{id}/test", post(api::test_service))
+        .route("/services/{id}/activate", post(api::activate_service))
+        .route("/services/{id}/deactivate", post(api::deactivate_service))
+        // Domains management for Admin UI (session auth - API key auth available at /api/domains/*)
+        .route("/domains", get(api::list_domains).post(api::create_domain))
+        .route("/domains/{id}", get(api::get_domain).put(api::update_domain).delete(api::delete_domain))
+        .route("/domains/{id}/collections", get(api::list_domain_collections))
+        // Collections management for Admin UI (session auth - API key auth available at /api/collections/*)
+        .route("/collections", get(api::list_collections).post(api::create_collection))
+        .route("/collections/{id}", get(api::get_collection).put(api::update_collection).delete(api::delete_collection))
         .layer(axum::middleware::from_fn_with_state(state.clone(), session::session_auth));
 
     // Public API routes (no authentication required)

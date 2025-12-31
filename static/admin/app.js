@@ -1,6 +1,8 @@
 // Rust Edge Gateway Admin UI
 
-const API_BASE = '/api';
+// Admin UI uses session-auth protected routes under /api/admin
+// API key protected routes remain available at /api/endpoints, /api/services, etc.
+const API_BASE = '/api/admin';
 
 const DEFAULT_HANDLER = `//! Handler for this endpoint
 use rust_edge_gateway_sdk::prelude::*;

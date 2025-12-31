@@ -9,7 +9,6 @@ use axum::{
     response::{IntoResponse, Response},
     routing::{any, get},
     Router,
-    middleware::Next,
 };
 use std::sync::Arc;
 use std::time::Duration;
@@ -18,77 +17,20 @@ use uuid::Uuid;
 use crate::AppState;
 
 /// Create the gateway router that handles all incoming requests
-pub fn create_gateway_router(state: Arc<AppState>) -> Router<Arc<AppState>> {
+///
+/// The gateway does NOT require API key authentication - it just routes requests
+/// to compiled handlers. Any authentication/authorization is the responsibility
+/// of the individual handlers themselves.
+pub fn create_gateway_router(_state: Arc<AppState>) -> Router<Arc<AppState>> {
     Router::new()
         .route("/health", get(health_check))
         .route("/{*path}", any(handle_gateway_request))
         .route("/", any(handle_gateway_request))
-        .layer(axum::middleware::from_fn_with_state(state.clone(), api_key_middleware))
 }
 
 /// Health check endpoint for the gateway
 async fn health_check() -> impl IntoResponse {
     (StatusCode::OK, "OK")
-}
-
-/// API key middleware for gateway requests
-pub async fn api_key_middleware(
-    State(state): State<Arc<AppState>>,
-    request: Request<Body>,
-    next: Next,
-) -> Result<Response, (StatusCode, String)> {
-    // Skip API key check for health check endpoint only
-    let path = request.uri().path();
-    if path == "/health" {
-        return Ok(next.run(request).await);
-    }
-
-    // Get headers from request
-    let headers = request.headers();
-
-    // Check for API key in headers
-    let auth_header = headers.get("Authorization")
-        .and_then(|h| h.to_str().ok())
-        .unwrap_or("");
-
-    // Extract API key from Bearer auth
-    if !auth_header.starts_with("Bearer ") {
-        return Err((StatusCode::UNAUTHORIZED, "API key required".to_string()));
-    }
-
-    let api_key_str = &auth_header[7..];
-
-    // Check rate limit for this API key
-    if let Err(retry_after) = state.api_key_rate_limiter.check(api_key_str) {
-        tracing::warn!(api_key = %api_key_str, "API key rate limited");
-        return Err((
-            StatusCode::TOO_MANY_REQUESTS,
-            format!("Too many requests. Try again in {} seconds", retry_after.as_secs())
-        ));
-    }
-
-    // Validate API key
-    let admin_db = crate::db_admin::AdminDatabase::new(&state.config.data_dir)
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to initialize admin database".to_string()))?;
-
-    let key = admin_db.get_api_key_by_value(api_key_str)
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to query admin database".to_string()))?
-        .ok_or((StatusCode::UNAUTHORIZED, "Invalid API key".to_string()))?;
-
-    // Check if API key is enabled
-    if !key.enabled {
-        return Err((StatusCode::UNAUTHORIZED, "API key is disabled".to_string()));
-    }
-
-    // Check if API key has expired
-    if let Some(expires_at) = key.expires_at {
-        if chrono::Utc::now() > expires_at {
-            return Err((StatusCode::UNAUTHORIZED, "API key has expired".to_string()));
-        }
-    }
-
-    // Continue to the next middleware/handler
-    Ok(next.run(request).await)
 }
 
 /// Handle an incoming gateway request using v2 handler registry
